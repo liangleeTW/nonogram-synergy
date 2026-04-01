@@ -1,0 +1,14 @@
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+
+logs/
+gifs/
+
+nonogram_replay.gif
+nonogram_turn_log.json
+nonogram_turn_log.csv
+nonogram_log_analysis.csv
+
+*.mp4
