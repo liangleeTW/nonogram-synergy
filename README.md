@@ -29,10 +29,12 @@ Visualization and analysis:
 - `analyze_logs.py`: converts a directory of JSON logs into a per-run CSV with summary, complexity, and difficulty measures
 - `compare_runs.py`: compares `collab` and `ind` runs from the analysis CSV and can also save a simple plot
 
-Research notes:
-- `note.md`: conceptual modeling note for the latent behavioral models
-- `line_solver.md`: notes about the line-solver logic
-- `information.md`: supporting project notes
+Notes:
+- `notes/MODEL.md`: practical explanation of the stochastic latent-choice model used in `latent_collab.py`
+- `notes/note.md`: broader conceptual modeling note for the latent behavioral models
+- `notes/line_solver.md`: notes about the deterministic line-solver logic
+- `notes/information.md`: supporting project notes
+- `notes/todo.md`: working planning notes
 
 ## Input And Output
 
@@ -41,10 +43,10 @@ Input files:
 - `y_*.npz`: target solution grids
 
 Current dataset examples:
-- `NonoDataset-main/10x10/x_test_dataset.npz`
-- `NonoDataset-main/10x10/y_test_dataset.npz`
-- `NonoDataset-main/15x15/x_test_15x15_ok.npz`
-- `NonoDataset-main/15x15/y_test_15x15_ok.npz`
+- `x_test_dataset.npz`
+- `y_test_dataset.npz`
+- `x_test_15x15_ok.npz`
+- `y_test_15x15_ok.npz`
 
 Output files:
 - solver scripts write JSON logs
@@ -61,11 +63,11 @@ This is the recommended order for a new user.
 
 The scripts require Python `>= 3.12`, `numpy`, and `matplotlib`.
 
-If you want to use the local virtual environment pattern used in this repository:
+If you want to use a local virtual environment:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install numpy matplotlib
+python3 -m venv env_local
+env_local/bin/pip install numpy matplotlib
 ```
 
 If you use Poetry:
@@ -77,41 +79,31 @@ poetry install
 ### Step 2. Run One Deterministic Collaborative Example
 
 ```bash
-.venv/bin/python collab.py \
-  --x-path NonoDataset-main/10x10/x_test_dataset.npz \
-  --y-path NonoDataset-main/10x10/y_test_dataset.npz \
+python collab.py \
+  --x-path <path-to-x_test_dataset.npz> \
+  --y-path <path-to-y_test_dataset.npz> \
   --sample-idx 0 \
+  --json-path /tmp/collab_sample0.json \
   --quiet
-```
-
-Default output path:
-
-```text
-logs/x_test_dataset__row-first__col-first/x_test_dataset__sample-00000.json
 ```
 
 ### Step 3. Run One Deterministic Individual Baseline Example
 
 ```bash
-.venv/bin/python ind.py \
-  --x-path NonoDataset-main/10x10/x_test_dataset.npz \
-  --y-path NonoDataset-main/10x10/y_test_dataset.npz \
+python ind.py \
+  --x-path <path-to-x_test_dataset.npz> \
+  --y-path <path-to-y_test_dataset.npz> \
   --sample-idx 0 \
+  --json-path /tmp/ind_sample0.json \
   --quiet
-```
-
-Default output path:
-
-```text
-logs/x_test_dataset__ind-first/x_test_dataset__sample-00000.json
 ```
 
 ### Step 4. Visualize A Solver Log
 
 ```bash
-.venv/bin/python vis.py \
-  --log-path logs/x_test_dataset__row-first__col-first/x_test_dataset__sample-00000.json \
-  --gif-path nonogram_replay.gif
+python vis.py \
+  --log-path /tmp/collab_sample0.json \
+  --gif-path /tmp/collab_sample0.gif
 ```
 
 ### Step 5. Run A Batch Of Deterministic Logs
@@ -119,44 +111,46 @@ logs/x_test_dataset__ind-first/x_test_dataset__sample-00000.json
 Collaborative solver over a sample range:
 
 ```bash
-.venv/bin/python collab.py \
-  --x-path NonoDataset-main/10x10/x_test_dataset.npz \
-  --y-path NonoDataset-main/10x10/y_test_dataset.npz \
+python collab.py \
+  --x-path <path-to-x_test_dataset.npz> \
+  --y-path <path-to-y_test_dataset.npz> \
   --sample-start 0 \
   --sample-end 10 \
+  --output-dir /tmp/collab_logs \
   --quiet
 ```
 
 Individual baseline over a sample range:
 
 ```bash
-.venv/bin/python ind.py \
-  --x-path NonoDataset-main/10x10/x_test_dataset.npz \
-  --y-path NonoDataset-main/10x10/y_test_dataset.npz \
+python ind.py \
+  --x-path <path-to-x_test_dataset.npz> \
+  --y-path <path-to-y_test_dataset.npz> \
   --sample-start 0 \
   --sample-end 10 \
+  --output-dir /tmp/ind_logs \
   --quiet
 ```
 
 Run the whole dataset:
 
 ```bash
-.venv/bin/python collab.py --x-path NonoDataset-main/10x10/x_test_dataset.npz --y-path NonoDataset-main/10x10/y_test_dataset.npz --all-samples --quiet
-.venv/bin/python ind.py --x-path NonoDataset-main/10x10/x_test_dataset.npz --y-path NonoDataset-main/10x10/y_test_dataset.npz --all-samples --quiet
+python collab.py --x-path <path-to-x_test_dataset.npz> --y-path <path-to-y_test_dataset.npz> --all-samples --output-dir /tmp/collab_logs_all --quiet
+python ind.py --x-path <path-to-x_test_dataset.npz> --y-path <path-to-y_test_dataset.npz> --all-samples --output-dir /tmp/ind_logs_all --quiet
 ```
 
 ### Step 6. Analyze Deterministic Logs
 
 ```bash
-.venv/bin/python analyze_logs.py \
-  --log-dir logs/x_test_dataset__row-first__col-first \
+python analyze_logs.py \
+  --log-dir /tmp/collab_logs \
   --output-csv /tmp/collab_analysis.csv
 ```
 
 If you want to use `compare_runs.py`, first create an analysis CSV from a directory that contains both `collab.py` and `ind.py` logs for the same samples.
 
 ```bash
-.venv/bin/python compare_runs.py \
+python compare_runs.py \
   --analysis-csv /tmp/mixed_analysis.csv \
   --summary-csv /tmp/summary.csv \
   --size-summary-csv /tmp/size_summary.csv \
@@ -168,9 +162,9 @@ If you want to use `compare_runs.py`, first create an analysis CSV from a direct
 One stochastic latent run:
 
 ```bash
-.venv/bin/python latent_collab.py \
-  --x-path NonoDataset-main/10x10/x_test_dataset.npz \
-  --y-path NonoDataset-main/10x10/y_test_dataset.npz \
+python latent_collab.py \
+  --x-path <path-to-x_test_dataset.npz> \
+  --y-path <path-to-y_test_dataset.npz> \
   --sample-idx 0 \
   --utility-model collaborative \
   --choice-set threshold \
@@ -178,15 +172,16 @@ One stochastic latent run:
   --beta 5 \
   --lambda-weight 1.0 \
   --seed 0 \
+  --json-path /tmp/latent_sample0.json \
   --quiet
 ```
 
 Sweep over many runs:
 
 ```bash
-.venv/bin/python sweep_latent.py \
-  --x-path NonoDataset-main/10x10/x_test_dataset.npz \
-  --y-path NonoDataset-main/10x10/y_test_dataset.npz \
+python sweep_latent.py \
+  --x-path <path-to-x_test_dataset.npz> \
+  --y-path <path-to-y_test_dataset.npz> \
   --sample-start 0 \
   --sample-end 100 \
   --utility-model individual \
@@ -591,7 +586,7 @@ These are heuristic scores, not absolute ground-truth measures.
 ### Worked Example: `x_test_dataset__sample-00000`
 
 This example uses:
-- log file: `logs/x_test_dataset__row-first__col-first/x_test_dataset__sample-00000.json`
+- one solved collaborative log for a `10x10` sample
 - row clues:
 
 ```text
@@ -798,9 +793,9 @@ The final `overall_label` is intended as a convenient summary column for filteri
 ### Run Log Analysis
 
 ```bash
-.venv/bin/python analyze_logs.py \
-  --log-dir logs/x_test_dataset__row-first__col-first \
-  --output-csv nonogram_log_analysis.csv
+python analyze_logs.py \
+  --log-dir /tmp/collab_logs \
+  --output-csv /tmp/nonogram_log_analysis.csv
 ```
 
 The CSV now records solver-specific run metadata for both conditions, including:
@@ -811,8 +806,8 @@ The CSV now records solver-specific run metadata for both conditions, including:
 ### Compare `collab` And `ind`
 
 ```bash
-.venv/bin/python compare_runs.py \
-  --analysis-csv nonogram_log_analysis.csv \
+python compare_runs.py \
+  --analysis-csv /tmp/nonogram_log_analysis.csv \
   --summary-csv /tmp/nonogram_compare_summary.csv \
   --size-summary-csv /tmp/nonogram_compare_by_size.csv \
   --plot-path /tmp/nonogram_compare.png
@@ -830,9 +825,9 @@ It can also save summary CSVs and a simple comparison plot.
 Simulate stochastic row/column agents with different candidate-set definitions:
 
 ```bash
-.venv/bin/python latent_collab.py \
-  --x-path NonoDataset-main/10x10/x_test_dataset.npz \
-  --y-path NonoDataset-main/10x10/y_test_dataset.npz \
+python latent_collab.py \
+  --x-path <path-to-x_test_dataset.npz> \
+  --y-path <path-to-y_test_dataset.npz> \
   --sample-idx 54 \
   --utility-model individual \
   --choice-set threshold \
@@ -859,9 +854,9 @@ The JSON output keeps the normal event log and also adds:
 Run a compact simulation sweep and save a CSV summary:
 
 ```bash
-.venv/bin/python sweep_latent.py \
-  --x-path NonoDataset-main/10x10/x_test_dataset.npz \
-  --y-path NonoDataset-main/10x10/y_test_dataset.npz \
+python sweep_latent.py \
+  --x-path <path-to-x_test_dataset.npz> \
+  --y-path <path-to-y_test_dataset.npz> \
   --sample-idx 54 \
   --utility-model individual \
   --utility-model collaborative \

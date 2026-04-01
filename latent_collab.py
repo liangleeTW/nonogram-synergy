@@ -65,6 +65,60 @@ def include_action(choice_set: str, q_own: float, tau: float, eps: float = 1e-9)
     raise ValueError(f"Unknown choice_set={choice_set}")
 
 
+def build_uninformed_candidates_for_actor(
+    grid: List[List[int]],
+    row_clues: List[List[int]],
+    col_clues: List[List[int]],
+    actor: str,
+) -> List[Candidate]:
+    candidates: List[Candidate] = []
+
+    if actor == "row":
+        for row_idx, clue in enumerate(row_clues):
+            for col_idx, cell in enumerate(grid[row_idx]):
+                if cell != UNKNOWN:
+                    continue
+                for value in (FILLED, EMPTY):
+                    candidates.append(
+                        {
+                            "actor": actor,
+                            "row": row_idx,
+                            "col": col_idx,
+                            "value": value,
+                            "value_name": value_name(value),
+                            "q_own": 0.5,
+                            "source_axis": "row",
+                            "source_index": row_idx,
+                            "source_clue": clue,
+                            "source_pattern_count": 0,
+                            "candidate_origin": "uninformed_fallback",
+                        }
+                    )
+    else:
+        n_rows = len(grid)
+        for col_idx, clue in enumerate(col_clues):
+            for row_idx in range(n_rows):
+                if grid[row_idx][col_idx] != UNKNOWN:
+                    continue
+                for value in (FILLED, EMPTY):
+                    candidates.append(
+                        {
+                            "actor": actor,
+                            "row": row_idx,
+                            "col": col_idx,
+                            "value": value,
+                            "value_name": value_name(value),
+                            "q_own": 0.5,
+                            "source_axis": "col",
+                            "source_index": col_idx,
+                            "source_clue": clue,
+                            "source_pattern_count": 0,
+                            "candidate_origin": "uninformed_fallback",
+                        }
+                    )
+    return candidates
+
+
 def softmax_probabilities(utilities: Sequence[float], beta: float) -> List[float]:
     finite_indices = [idx for idx, utility in enumerate(utilities) if math.isfinite(utility)]
     if not finite_indices:
@@ -152,6 +206,7 @@ def build_candidates_for_actor(
                             "source_index": row_idx,
                             "source_clue": clue,
                             "source_pattern_count": len(patterns),
+                            "candidate_origin": choice_set,
                         }
                     )
     else:
@@ -184,10 +239,53 @@ def build_candidates_for_actor(
                             "source_index": col_idx,
                             "source_clue": clue,
                             "source_pattern_count": len(patterns),
+                            "candidate_origin": choice_set,
                         }
                     )
 
     return candidates
+
+
+def prepare_candidates_for_actor(
+    grid: List[List[int]],
+    row_clues: List[List[int]],
+    col_clues: List[List[int]],
+    actor: str,
+    choice_set: str,
+    tau: float,
+) -> Tuple[List[Candidate], str, bool]:
+    candidates = build_candidates_for_actor(
+        grid=grid,
+        row_clues=row_clues,
+        col_clues=col_clues,
+        actor=actor,
+        choice_set=choice_set,
+        tau=tau,
+    )
+    if candidates:
+        return candidates, choice_set, False
+
+    if choice_set != "all_legal":
+        fallback_candidates = build_candidates_for_actor(
+            grid=grid,
+            row_clues=row_clues,
+            col_clues=col_clues,
+            actor=actor,
+            choice_set="all_legal",
+            tau=tau,
+        )
+        if fallback_candidates:
+            for candidate in fallback_candidates:
+                candidate["candidate_origin"] = "all_legal_fallback"
+            return fallback_candidates, "all_legal_fallback", True
+
+    fallback_candidates = build_uninformed_candidates_for_actor(
+        grid=grid,
+        row_clues=row_clues,
+        col_clues=col_clues,
+        actor=actor,
+    )
+    return fallback_candidates, "uninformed_fallback", True
 
 
 def score_candidates(
@@ -278,6 +376,7 @@ def candidate_table_entry(turn: int, candidate: Candidate, chosen: bool) -> Dict
         "source_index": candidate["source_index"],
         "source_clue": candidate["source_clue"],
         "source_pattern_count": candidate["source_pattern_count"],
+        "candidate_origin": candidate.get("candidate_origin"),
         "q_own": candidate["q_own"],
         "b_partner_local": candidate["b_partner_local"],
         "partner_pattern_count_before": candidate["partner_pattern_count_before"],
@@ -286,29 +385,6 @@ def candidate_table_entry(turn: int, candidate: Candidate, chosen: bool) -> Dict
         "utility": candidate["utility"],
         "probability": candidate["probability"],
         "chosen": chosen,
-    }
-
-
-def build_pass_decision(
-    utility_model: str,
-    choice_set: str,
-    alpha: float,
-    beta: float,
-    tau: float,
-    lambda_weight: float,
-) -> Dict[str, Any]:
-    return {
-        "utility_model": utility_model,
-        "choice_set": choice_set,
-        "alpha": alpha,
-        "beta": beta,
-        "tau": tau,
-        "lambda_weight": lambda_weight,
-        "candidate_count": 0,
-        "chosen_probability": None,
-        "chosen_q_own": None,
-        "chosen_b_partner_local": None,
-        "chosen_utility": None,
     }
 
 
@@ -334,8 +410,6 @@ def solve_latent_turn_based_logged(
     candidate_steps: List[Dict[str, Any]] = []
 
     turn = 0
-    consecutive_passes = 0
-
     log_event(
         log,
         turn=0,
@@ -357,7 +431,7 @@ def solve_latent_turn_based_logged(
 
             turn += 1
             grid_before = copy.deepcopy(grid)
-            candidates = build_candidates_for_actor(
+            candidates, effective_choice_set, choice_fallback_used = prepare_candidates_for_actor(
                 grid=grid,
                 row_clues=row_clues,
                 col_clues=col_clues,
@@ -376,7 +450,28 @@ def solve_latent_turn_based_logged(
                 lambda_weight=lambda_weight,
             )
 
+            effective_utility_model = utility_model
+            utility_fallback_used = False
             chosen_candidate = choose_candidate(candidates, rng)
+            if chosen_candidate is None:
+                score_candidates(
+                    candidates=candidates,
+                    grid=grid,
+                    row_clues=row_clues,
+                    col_clues=col_clues,
+                    utility_model="individual",
+                    alpha=alpha,
+                    beta=beta,
+                    lambda_weight=lambda_weight,
+                )
+                effective_utility_model = "individual_fallback"
+                utility_fallback_used = True
+                chosen_candidate = choose_candidate(candidates, rng)
+            if chosen_candidate is None:
+                raise ValueError(
+                    f"No selectable candidate for actor={actor} at turn={turn} "
+                    f"with {len(candidates)} candidate(s)"
+                )
             candidate_table_rows = [
                 candidate_table_entry(turn, candidate, candidate is chosen_candidate)
                 for candidate in candidates
@@ -385,56 +480,45 @@ def solve_latent_turn_based_logged(
                 {
                     "turn": turn,
                     "agent": actor,
+                    "requested_choice_set": choice_set,
+                    "effective_choice_set": effective_choice_set,
+                    "requested_utility_model": utility_model,
+                    "effective_utility_model": effective_utility_model,
                     "candidates": candidate_table_rows,
                 }
             )
 
-            if chosen_candidate is None:
-                consecutive_passes += 1
-                log_event(log, turn, actor, "pass", grid_before, grid, None)
-                log[-1]["decision"] = build_pass_decision(
-                    utility_model=utility_model,
-                    choice_set=choice_set,
-                    alpha=alpha,
-                    beta=beta,
-                    tau=tau,
-                    lambda_weight=lambda_weight,
+            move = move_from_candidate(chosen_candidate)
+            apply_move(grid, move)
+            log_event(log, turn, actor, "write", grid_before, grid, move)
+            log[-1]["decision"] = {
+                "utility_model": utility_model,
+                "effective_utility_model": effective_utility_model,
+                "utility_fallback_used": utility_fallback_used,
+                "choice_set": choice_set,
+                "effective_choice_set": effective_choice_set,
+                "choice_fallback_used": choice_fallback_used,
+                "alpha": alpha,
+                "beta": beta,
+                "tau": tau,
+                "lambda_weight": lambda_weight,
+                "candidate_count": len(candidates),
+                "chosen_probability": chosen_candidate["probability"],
+                "chosen_q_own": chosen_candidate["q_own"],
+                "chosen_b_partner_local": chosen_candidate["b_partner_local"],
+                "chosen_utility": chosen_candidate["utility"],
+                "chosen_candidate_origin": chosen_candidate.get("candidate_origin"),
+                "partner_pattern_count_before": chosen_candidate["partner_pattern_count_before"],
+                "partner_pattern_count_after": chosen_candidate["partner_pattern_count_after"],
+                "partner_compatible": chosen_candidate["partner_compatible"],
+            }
+            if verbose:
+                row, col, value, explanation = move
+                print(
+                    f"Turn {turn} | {actor.upper()} writes ({row}, {col}) = "
+                    f"{cell_to_char(value)} | {explanation}"
                 )
-                if verbose:
-                    print(f"Turn {turn} | {actor.upper()} passes")
-            else:
-                move = move_from_candidate(chosen_candidate)
-                apply_move(grid, move)
-                consecutive_passes = 0
-                log_event(log, turn, actor, "write", grid_before, grid, move)
-                log[-1]["decision"] = {
-                    "utility_model": utility_model,
-                    "choice_set": choice_set,
-                    "alpha": alpha,
-                    "beta": beta,
-                    "tau": tau,
-                    "lambda_weight": lambda_weight,
-                    "candidate_count": len(candidates),
-                    "chosen_probability": chosen_candidate["probability"],
-                    "chosen_q_own": chosen_candidate["q_own"],
-                    "chosen_b_partner_local": chosen_candidate["b_partner_local"],
-                    "chosen_utility": chosen_candidate["utility"],
-                    "partner_pattern_count_before": chosen_candidate["partner_pattern_count_before"],
-                    "partner_pattern_count_after": chosen_candidate["partner_pattern_count_after"],
-                    "partner_compatible": chosen_candidate["partner_compatible"],
-                }
-                if verbose:
-                    row, col, value, explanation = move
-                    print(
-                        f"Turn {turn} | {actor.upper()} writes ({row}, {col}) = "
-                        f"{cell_to_char(value)} | {explanation}"
-                    )
-                    print_grid(grid)
-
-            if consecutive_passes >= 2:
-                if verbose:
-                    print("Both agents passed consecutively. Stopping.")
-                break
+                print_grid(grid)
 
     log_event(log, turn + 1, "system", "end", grid, grid, None)
 
@@ -453,7 +537,7 @@ def augment_payload_with_candidate_tables(
 
     decision_events = [
         event for event in payload["events"]
-        if event["action"] in {"write", "pass"} and "decision" in event
+        if event["action"] == "write" and "decision" in event
     ]
     candidate_counts = [event["decision"]["candidate_count"] for event in decision_events]
     chosen_probabilities = [
@@ -486,6 +570,12 @@ def augment_payload_with_candidate_tables(
     )
     payload["summary"]["candidate_table_steps"] = len(candidate_steps)
     payload["summary"]["candidate_table_rows"] = sum(len(step["candidates"]) for step in candidate_steps)
+    payload["summary"]["choice_fallback_steps"] = sum(
+        1 for event in decision_events if event["decision"].get("choice_fallback_used")
+    )
+    payload["summary"]["utility_fallback_steps"] = sum(
+        1 for event in decision_events if event["decision"].get("utility_fallback_used")
+    )
     return payload
 
 
