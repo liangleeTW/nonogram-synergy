@@ -5,7 +5,7 @@ __pycache__/
 
 logs/
 gifs/
-
+NonoDataset-main
 nonogram_replay.gif
 nonogram_turn_log.json
 nonogram_turn_log.csv
