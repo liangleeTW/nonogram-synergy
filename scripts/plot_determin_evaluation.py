@@ -1,15 +1,15 @@
 """
-Create deterministic-evaluation plots from saved analysis CSV files.
+Create determin-evaluation plots from saved analysis CSV files.
 
 Input:
-- results/analysis/deterministic_collab_1000_analysis.csv
-- results/analysis/deterministic_ind_1000_analysis.csv
+- results/analysis/determin_dyad_1000_analysis.csv
+- results/analysis/determin_ind_1000_analysis.csv
 
 Output:
-- results/plots/deterministic_evaluation_1000.png
+- results/plots/determin_evaluation_1000.png
 
 Run:
-- .venv/bin/python scripts/plot_deterministic_evaluation.py
+- .venv/bin/python scripts/plot_determin_evaluation.py
 """
 
 from __future__ import annotations
@@ -41,17 +41,17 @@ def mean_pass_events(rows: List[Dict[str, str]]) -> float:
     return mean(float(row["pass_events"]) for row in rows) if rows else 0.0
 
 
-def plot_deterministic_evaluation(
-    collab_csv: str,
+def plot_determin_evaluation(
+    dyad_csv: str,
     ind_csv: str,
     output_path: str,
 ) -> None:
-    collab_rows = read_csv_rows(collab_csv)
+    dyad_rows = read_csv_rows(dyad_csv)
     ind_rows = read_csv_rows(ind_csv)
 
-    labels = ["Det Collab", "Det Ind"]
+    labels = ["Det Dyad", "Det Ind"]
     rows_by_label = {
-        "Det Collab": collab_rows,
+        "Det Dyad": dyad_rows,
         "Det Ind": ind_rows,
     }
 
@@ -140,26 +140,26 @@ def plot_deterministic_evaluation(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Plot deterministic nonogram evaluation summaries.")
+    parser = argparse.ArgumentParser(description="Plot determin nonogram evaluation summaries.")
     parser.add_argument(
-        "--collab-csv",
-        default="results/analysis/deterministic_collab_1000_analysis.csv",
-        help="Analysis CSV for the deterministic collaborative solver.",
+        "--dyad-csv",
+        default="results/analysis/determin_dyad_1000_analysis.csv",
+        help="Analysis CSV for the determin dyad solver.",
     )
     parser.add_argument(
         "--ind-csv",
-        default="results/analysis/deterministic_ind_1000_analysis.csv",
-        help="Analysis CSV for the deterministic individual solver.",
+        default="results/analysis/determin_ind_1000_analysis.csv",
+        help="Analysis CSV for the determin ind solver.",
     )
     parser.add_argument(
         "--output-path",
-        default="results/plots/deterministic_evaluation_1000.png",
-        help="Destination path for the deterministic evaluation plot.",
+        default="results/plots/determin_evaluation_1000.png",
+        help="Destination path for the determin evaluation plot.",
     )
     args = parser.parse_args()
 
-    plot_deterministic_evaluation(
-        collab_csv=args.collab_csv,
+    plot_determin_evaluation(
+        dyad_csv=args.dyad_csv,
         ind_csv=args.ind_csv,
         output_path=args.output_path,
     )

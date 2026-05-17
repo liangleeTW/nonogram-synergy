@@ -4,7 +4,7 @@ import argparse
 import copy
 from typing import Any, Dict, List, Tuple
 
-from latent_collab import (
+from stoch_dyad import (
     Candidate,
     candidate_table_entry,
     choose_candidate,
@@ -41,7 +41,7 @@ def safe_line_probabilities(
     clues: List[int],
     current_line: List[int],
 ) -> Tuple[List[List[int]], List[float]]:
-    from latent_collab import safe_line_probabilities as shared_safe_line_probabilities
+    from stoch_dyad import safe_line_probabilities as shared_safe_line_probabilities
 
     return shared_safe_line_probabilities(length, clues, current_line)
 
@@ -64,7 +64,7 @@ def add_candidate(
         candidates_by_key[key] = candidate
 
 
-def build_candidates_for_individual(
+def build_candidates_for_ind(
     grid: List[List[int]],
     row_clues: List[List[int]],
     col_clues: List[List[int]],
@@ -140,7 +140,7 @@ def build_candidates_for_individual(
     return list(candidates_by_key.values())
 
 
-def build_uninformed_candidates_for_individual(
+def build_uninformed_candidates_for_ind(
     grid: List[List[int]],
 ) -> List[Candidate]:
     candidates: List[Candidate] = []
@@ -167,14 +167,14 @@ def build_uninformed_candidates_for_individual(
     return candidates
 
 
-def prepare_candidates_for_individual(
+def prepare_candidates_for_ind(
     grid: List[List[int]],
     row_clues: List[List[int]],
     col_clues: List[List[int]],
     choice_set: str,
     tau: float,
 ) -> Tuple[List[Candidate], str, bool]:
-    candidates = build_candidates_for_individual(
+    candidates = build_candidates_for_ind(
         grid=grid,
         row_clues=row_clues,
         col_clues=col_clues,
@@ -185,7 +185,7 @@ def prepare_candidates_for_individual(
         return candidates, choice_set, False
 
     if choice_set != "all_legal":
-        fallback_candidates = build_candidates_for_individual(
+        fallback_candidates = build_candidates_for_ind(
             grid=grid,
             row_clues=row_clues,
             col_clues=col_clues,
@@ -197,7 +197,7 @@ def prepare_candidates_for_individual(
                 candidate["candidate_origin"] = "all_legal_fallback"
             return fallback_candidates, "all_legal_fallback", True
 
-    return build_uninformed_candidates_for_individual(grid), "uninformed_fallback", True
+    return build_uninformed_candidates_for_ind(grid), "uninformed_fallback", True
 
 
 def score_candidates(candidates: List[Candidate], alpha: float, beta: float) -> None:
@@ -250,10 +250,10 @@ def augment_payload_with_candidate_tables(
 def default_solver_tag(choice_set: str, tau: float, beta: float, seed: int) -> str:
     tau_token = f"tau-{tau:.2f}".replace(".", "p")
     beta_token = f"beta-{beta:.2f}".replace(".", "p")
-    return f"latent-ind__{choice_set}__{tau_token}__{beta_token}__seed-{seed}"
+    return f"stoch-ind__{choice_set}__{tau_token}__{beta_token}__seed-{seed}"
 
 
-def solve_latent_individual_logged(
+def solve_stoch_ind_logged(
     row_clues: List[List[int]],
     col_clues: List[List[int]],
     choice_set: str = "certainty1",
@@ -291,7 +291,7 @@ def solve_latent_individual_logged(
     while turn < max_turns and not is_solved(grid):
         turn += 1
         grid_before = copy.deepcopy(grid)
-        candidates, effective_choice_set, choice_fallback_used = prepare_candidates_for_individual(
+        candidates, effective_choice_set, choice_fallback_used = prepare_candidates_for_ind(
             grid=grid,
             row_clues=row_clues,
             col_clues=col_clues,
@@ -301,7 +301,7 @@ def solve_latent_individual_logged(
         score_candidates(candidates=candidates, alpha=alpha, beta=beta)
         chosen_candidate = choose_candidate(candidates, rng)
         if chosen_candidate is None:
-            raise ValueError(f"No selectable individual latent candidate at turn={turn}")
+            raise ValueError(f"No selectable ind stoch candidate at turn={turn}")
 
         candidate_steps.append(
             {
@@ -309,8 +309,8 @@ def solve_latent_individual_logged(
                 "agent": "ind",
                 "requested_choice_set": choice_set,
                 "effective_choice_set": effective_choice_set,
-                "requested_utility_model": "individual",
-                "effective_utility_model": "individual",
+                "requested_utility_model": "ind",
+                "effective_utility_model": "ind",
                 "candidates": [
                     candidate_table_entry(turn, candidate, candidate is chosen_candidate)
                     for candidate in candidates
@@ -322,8 +322,8 @@ def solve_latent_individual_logged(
         apply_move(grid, move)
         log_event(log, turn, "ind", "write", grid_before, grid, move)
         log[-1]["decision"] = {
-            "utility_model": "individual",
-            "effective_utility_model": "individual",
+            "utility_model": "ind",
+            "effective_utility_model": "ind",
             "utility_fallback_used": False,
             "choice_set": choice_set,
             "effective_choice_set": effective_choice_set,
@@ -361,7 +361,7 @@ def solve_latent_individual_logged(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Simulate a stochastic latent-choice full-information individual agent on the nonogram task."
+        description="Simulate a stoch-choice full-information ind agent on the nonogram task."
     )
     parser.add_argument("--x-path", help="Path to packed clue x_*.npz file")
     parser.add_argument("--y-path", help="Optional path to target y_*.npz file")
@@ -403,7 +403,7 @@ def main() -> None:
     if batch_mode and args.json_path:
         raise ValueError("Use --output-dir instead of --json-path in batch mode")
     if args.x_path is None:
-        raise ValueError("latent_ind.py currently requires --x-path")
+        raise ValueError("stoch_ind.py currently requires --x-path")
 
     x_array = load_npz_array(args.x_path)
     y_array = load_dataset_targets(args.y_path)
@@ -431,7 +431,7 @@ def main() -> None:
             y_path=args.y_path,
         )
         max_turns = args.max_turns or default_max_turns(row_clues, col_clues)
-        final_grid, log, candidate_steps = solve_latent_individual_logged(
+        final_grid, log, candidate_steps = solve_stoch_ind_logged(
             row_clues=row_clues,
             col_clues=col_clues,
             choice_set=args.choice_set,
@@ -454,8 +454,8 @@ def main() -> None:
             y_path=args.y_path,
             sample_idx=idx,
             metadata_extra={
-                "solver": "latent_ind",
-                "utility_model": "individual",
+                "solver": "stoch_ind",
+                "utility_model": "ind",
                 "choice_set": args.choice_set,
                 "alpha": args.alpha,
                 "beta": args.beta,

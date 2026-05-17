@@ -9,10 +9,10 @@ from typing import Any, Dict, List
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from latent_collab import (
+from stoch_dyad import (
     augment_payload_with_candidate_tables,
     default_solver_tag,
-    solve_latent_turn_based_logged,
+    solve_stoch_turn_based_logged,
 )
 from solver_common import (
     build_log_payload,
@@ -44,7 +44,7 @@ def write_csv(rows: List[Dict[str, Any]], output_csv: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run stochastic latent-choice sweeps and export a summary CSV."
+        description="Run stoch-choice sweeps and export a summary CSV."
     )
     parser.add_argument("--x-path", required=True, help="Path to packed clue x_*.npz file")
     parser.add_argument("--y-path", help="Optional path to target y_*.npz file")
@@ -55,8 +55,8 @@ def main() -> None:
     parser.add_argument(
         "--utility-model",
         action="append",
-        choices=["individual", "collaborative"],
-        help="Repeat to sweep multiple utility models. Defaults to individual and collaborative.",
+        choices=["ind", "dyad"],
+        help="Repeat to sweep multiple utility models. Defaults to ind and dyad.",
     )
     parser.add_argument(
         "--choice-set",
@@ -81,7 +81,7 @@ def main() -> None:
         dest="lambda_weights",
         action="append",
         type=float,
-        help="Repeat to sweep multiple collaborative lambda values. Defaults to 1.0.",
+        help="Repeat to sweep multiple dyad lambda values. Defaults to 1.0.",
     )
     parser.add_argument(
         "--seed",
@@ -97,7 +97,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output-csv",
-        default="results/analysis/latent_sweep_summary.csv",
+        default="results/analysis/stoch_sweep_summary.csv",
         help="Destination CSV path for the sweep summary.",
     )
     parser.add_argument(
@@ -107,7 +107,7 @@ def main() -> None:
     parser.add_argument("--quiet", action="store_true", help="Disable step-by-step printing")
     args = parser.parse_args()
 
-    utility_models = args.utility_model or ["individual", "collaborative"]
+    utility_models = args.utility_model or ["ind", "dyad"]
     choice_sets = args.choice_set or ["certainty1", "threshold"]
     taus = args.tau or [0.75]
     betas = args.beta or [5.0]
@@ -143,7 +143,7 @@ def main() -> None:
     ):
         if choice_set != "threshold" and tau != taus[0]:
             continue
-        if utility_model == "individual" and lambda_weight != lambda_weights[0]:
+        if utility_model == "ind" and lambda_weight != lambda_weights[0]:
             continue
 
         row_clues, col_clues, target_grid = load_dataset_sample(
@@ -152,7 +152,7 @@ def main() -> None:
             y_path=args.y_path,
         )
         max_turns = args.max_turns or default_max_turns(row_clues, col_clues)
-        final_grid, log, candidate_steps = solve_latent_turn_based_logged(
+        final_grid, log, candidate_steps = solve_stoch_turn_based_logged(
             row_clues=row_clues,
             col_clues=col_clues,
             utility_model=utility_model,
@@ -177,7 +177,7 @@ def main() -> None:
             y_path=args.y_path,
             sample_idx=sample_idx,
             metadata_extra={
-                "solver": "latent_collab",
+                "solver": "stoch_dyad",
                 "utility_model": utility_model,
                 "choice_set": choice_set,
                 "alpha": args.alpha,

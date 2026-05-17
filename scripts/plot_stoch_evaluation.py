@@ -1,17 +1,17 @@
 """
-Create latent-evaluation plots from saved analysis CSV files and latent JSON logs.
+Create stoch-evaluation plots from saved analysis CSV files and stoch JSON logs.
 
 Input:
-- results/analysis/latent_ind_threshold_seed0_1000_analysis.csv
-- results/analysis/latent_collab_threshold_seed0_1000_analysis.csv
-- results/runs/latent_ind_threshold_seed0_1000/*.json
-- results/runs/latent_collab_threshold_seed0_1000/*.json
+- results/analysis/stoch_ind_threshold_seed0_1000_analysis.csv
+- results/analysis/stoch_dyad_threshold_seed0_1000_analysis.csv
+- results/runs/stoch_ind_threshold_seed0_1000/*.json
+- results/runs/stoch_dyad_threshold_seed0_1000/*.json
 
 Output:
-- results/plots/latent_evaluation_1000.png
+- results/plots/stoch_evaluation_1000.png
 
 Run:
-- .venv/bin/python scripts/plot_latent_evaluation.py
+- .venv/bin/python scripts/plot_stoch_evaluation.py
 """
 
 from __future__ import annotations
@@ -73,23 +73,23 @@ def folder_fallback_means(folder: str) -> Dict[str, float]:
     }
 
 
-def plot_latent_evaluation(
+def plot_stoch_evaluation(
     ind_csv: str,
-    collab_csv: str,
+    dyad_csv: str,
     ind_log_dir: str,
-    collab_log_dir: str,
+    dyad_log_dir: str,
     output_path: str,
 ) -> None:
     ind_rows = read_csv_rows(ind_csv)
-    collab_rows = read_csv_rows(collab_csv)
-    labels = ["Latent Ind", "Latent Collab"]
+    dyad_rows = read_csv_rows(dyad_csv)
+    labels = ["Latent Ind", "Stoch Dyad"]
     rows_by_label = {
         "Latent Ind": ind_rows,
-        "Latent Collab": collab_rows,
+        "Stoch Dyad": dyad_rows,
     }
     folders = {
         "Latent Ind": ind_log_dir,
-        "Latent Collab": collab_log_dir,
+        "Stoch Dyad": dyad_log_dir,
     }
     colors = ["#C06C84", "#F67280"]
 
@@ -133,7 +133,7 @@ def plot_latent_evaluation(
         for row in rows_by_label[label]:
             by_complexity[label][row["complexity_label"]].append(row)
 
-    complexity_plot = output.with_name("latent_evaluation_by_complexity_1000.png")
+    complexity_plot = output.with_name("stoch_evaluation_by_complexity_1000.png")
     fig, ax = plt.subplots(figsize=(9, 5))
     width = 0.35
     x_positions = range(len(complexity_order))
@@ -160,39 +160,39 @@ def plot_latent_evaluation(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Plot latent nonogram evaluation summaries.")
+    parser = argparse.ArgumentParser(description="Plot stoch nonogram evaluation summaries.")
     parser.add_argument(
         "--ind-csv",
-        default="results/analysis/latent_ind_threshold_seed0_1000_analysis.csv",
-        help="Analysis CSV for the latent individual solver.",
+        default="results/analysis/stoch_ind_threshold_seed0_1000_analysis.csv",
+        help="Analysis CSV for the stoch ind solver.",
     )
     parser.add_argument(
-        "--collab-csv",
-        default="results/analysis/latent_collab_threshold_seed0_1000_analysis.csv",
-        help="Analysis CSV for the latent collaborative solver.",
+        "--dyad-csv",
+        default="results/analysis/stoch_dyad_threshold_seed0_1000_analysis.csv",
+        help="Analysis CSV for the stoch dyad solver.",
     )
     parser.add_argument(
         "--ind-log-dir",
-        default="results/runs/latent_ind_threshold_seed0_1000",
-        help="Folder containing latent individual JSON logs.",
+        default="results/runs/stoch_ind_threshold_seed0_1000",
+        help="Folder containing stoch ind JSON logs.",
     )
     parser.add_argument(
-        "--collab-log-dir",
-        default="results/runs/latent_collab_threshold_seed0_1000",
-        help="Folder containing latent collaborative JSON logs.",
+        "--dyad-log-dir",
+        default="results/runs/stoch_dyad_threshold_seed0_1000",
+        help="Folder containing stoch dyad JSON logs.",
     )
     parser.add_argument(
         "--output-path",
-        default="results/plots/latent_evaluation_1000.png",
-        help="Destination path for the latent evaluation summary plot.",
+        default="results/plots/stoch_evaluation_1000.png",
+        help="Destination path for the stoch evaluation summary plot.",
     )
     args = parser.parse_args()
 
-    plot_latent_evaluation(
+    plot_stoch_evaluation(
         ind_csv=args.ind_csv,
-        collab_csv=args.collab_csv,
+        dyad_csv=args.dyad_csv,
         ind_log_dir=args.ind_log_dir,
-        collab_log_dir=args.collab_log_dir,
+        dyad_log_dir=args.dyad_log_dir,
         output_path=args.output_path,
     )
 

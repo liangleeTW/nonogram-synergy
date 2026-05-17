@@ -293,7 +293,7 @@ def analyze_payload(path: Path, payload: Dict[str, Any]) -> Dict[str, Any]:
         if "ind" in event_agents:
             solver = "ind"
         elif "row" in event_agents or "col" in event_agents:
-            solver = "collab"
+            solver = "dyad"
         else:
             solver = "unknown"
 
@@ -320,7 +320,7 @@ def analyze_payload(path: Path, payload: Dict[str, Any]) -> Dict[str, Any]:
         "board_cols": n_cols,
         "num_cells": num_cells,
         "solver": solver,
-        "agent_mode": "individual" if solver == "ind" else "collaborative" if solver == "collab" else "unknown",
+        "agent_mode": "ind" if solver == "ind" else "dyad" if solver == "dyad" else "unknown",
         "strategy": strategy if strategy is not None else row_strategy,
         "row_strategy": row_strategy,
         "col_strategy": col_strategy,

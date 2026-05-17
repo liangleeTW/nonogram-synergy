@@ -1,15 +1,15 @@
 """
-Create boxplot-based deterministic-evaluation figures from saved analysis CSV files.
+Create boxplot-based determin-evaluation figures from saved analysis CSV files.
 
 Input:
-- results/analysis/deterministic_collab_1000_analysis.csv
-- results/analysis/deterministic_ind_1000_analysis.csv
+- results/analysis/determin_dyad_1000_analysis.csv
+- results/analysis/determin_ind_1000_analysis.csv
 
 Output:
-- results/plots/deterministic_evaluation_boxplot_1000.png
+- results/plots/determin_evaluation_boxplot_1000.png
 
 Run:
-- .venv/bin/python scripts/plot_deterministic_boxplots.py
+- .venv/bin/python scripts/plot_determin_boxplots.py
 """
 
 from __future__ import annotations
@@ -46,13 +46,13 @@ def add_boxplot(ax: plt.Axes, data: List[List[float]], labels: List[str], colors
     ax.set_title(title)
 
 
-def plot_deterministic_boxplots(collab_csv: str, ind_csv: str, output_path: str) -> None:
-    collab_rows = read_csv_rows(collab_csv)
+def plot_determin_boxplots(dyad_csv: str, ind_csv: str, output_path: str) -> None:
+    dyad_rows = read_csv_rows(dyad_csv)
     ind_rows = read_csv_rows(ind_csv)
 
-    labels = ["Det Collab", "Det Ind"]
+    labels = ["Det Dyad", "Det Ind"]
     colors = ["#355C7D", "#6C8EAD"]
-    rows_by_label = [collab_rows, ind_rows]
+    rows_by_label = [dyad_rows, ind_rows]
 
     metrics = [
         ("Exact Match Indicator", [bool_series(rows, "matches_target") for rows in rows_by_label]),
@@ -76,26 +76,26 @@ def plot_deterministic_boxplots(collab_csv: str, ind_csv: str, output_path: str)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create deterministic evaluation boxplots.")
+    parser = argparse.ArgumentParser(description="Create determin evaluation boxplots.")
     parser.add_argument(
-        "--collab-csv",
-        default="results/analysis/deterministic_collab_1000_analysis.csv",
-        help="Analysis CSV for the deterministic collaborative solver.",
+        "--dyad-csv",
+        default="results/analysis/determin_dyad_1000_analysis.csv",
+        help="Analysis CSV for the determin dyad solver.",
     )
     parser.add_argument(
         "--ind-csv",
-        default="results/analysis/deterministic_ind_1000_analysis.csv",
-        help="Analysis CSV for the deterministic individual solver.",
+        default="results/analysis/determin_ind_1000_analysis.csv",
+        help="Analysis CSV for the determin ind solver.",
     )
     parser.add_argument(
         "--output-path",
-        default="results/plots/deterministic_evaluation_boxplot_1000.png",
-        help="Destination path for the deterministic evaluation boxplot.",
+        default="results/plots/determin_evaluation_boxplot_1000.png",
+        help="Destination path for the determin evaluation boxplot.",
     )
     args = parser.parse_args()
 
-    plot_deterministic_boxplots(
-        collab_csv=args.collab_csv,
+    plot_determin_boxplots(
+        dyad_csv=args.dyad_csv,
         ind_csv=args.ind_csv,
         output_path=args.output_path,
     )

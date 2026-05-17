@@ -1,17 +1,17 @@
 """
-Create boxplot-based latent-evaluation figures from saved analysis CSV files and latent JSON logs.
+Create boxplot-based stoch-evaluation figures from saved analysis CSV files and stoch JSON logs.
 
 Input:
-- results/analysis/latent_ind_threshold_seed0_1000_analysis.csv
-- results/analysis/latent_collab_threshold_seed0_1000_analysis.csv
-- results/runs/latent_ind_threshold_seed0_1000/*.json
-- results/runs/latent_collab_threshold_seed0_1000/*.json
+- results/analysis/stoch_ind_threshold_seed0_1000_analysis.csv
+- results/analysis/stoch_dyad_threshold_seed0_1000_analysis.csv
+- results/runs/stoch_ind_threshold_seed0_1000/*.json
+- results/runs/stoch_dyad_threshold_seed0_1000/*.json
 
 Output:
-- results/plots/latent_evaluation_boxplot_1000.png
+- results/plots/stoch_evaluation_boxplot_1000.png
 
 Run:
-- .venv/bin/python scripts/plot_latent_boxplots.py
+- .venv/bin/python scripts/plot_stoch_boxplots.py
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def bool_series(rows: List[Dict[str, str]], key: str) -> List[float]:
     return [1.0 if row[key] == "True" else 0.0 for row in rows]
 
 
-def load_latent_log_metrics(folder: str) -> Dict[str, List[float]]:
+def load_stoch_log_metrics(folder: str) -> Dict[str, List[float]]:
     metrics = {
         "cell_accuracy": [],
         "choice_fallback_steps": [],
@@ -76,26 +76,26 @@ def add_boxplot(ax: plt.Axes, data: List[List[float]], labels: List[str], colors
     ax.set_title(title)
 
 
-def plot_latent_boxplots(
+def plot_stoch_boxplots(
     ind_csv: str,
-    collab_csv: str,
+    dyad_csv: str,
     ind_log_dir: str,
-    collab_log_dir: str,
+    dyad_log_dir: str,
     output_path: str,
 ) -> None:
     ind_rows = read_csv_rows(ind_csv)
-    collab_rows = read_csv_rows(collab_csv)
-    ind_metrics = load_latent_log_metrics(ind_log_dir)
-    collab_metrics = load_latent_log_metrics(collab_log_dir)
+    dyad_rows = read_csv_rows(dyad_csv)
+    ind_metrics = load_stoch_log_metrics(ind_log_dir)
+    dyad_metrics = load_stoch_log_metrics(dyad_log_dir)
 
-    labels = ["Latent Ind", "Latent Collab"]
+    labels = ["Latent Ind", "Stoch Dyad"]
     colors = ["#C06C84", "#F67280"]
 
     metrics = [
-        ("Exact Match Indicator", [bool_series(ind_rows, "matches_target"), bool_series(collab_rows, "matches_target")]),
-        ("Cell Accuracy", [ind_metrics["cell_accuracy"], collab_metrics["cell_accuracy"]]),
-        ("Choice-Fallback Steps", [ind_metrics["choice_fallback_steps"], collab_metrics["choice_fallback_steps"]]),
-        ("Utility-Fallback Steps", [ind_metrics["utility_fallback_steps"], collab_metrics["utility_fallback_steps"]]),
+        ("Exact Match Indicator", [bool_series(ind_rows, "matches_target"), bool_series(dyad_rows, "matches_target")]),
+        ("Cell Accuracy", [ind_metrics["cell_accuracy"], dyad_metrics["cell_accuracy"]]),
+        ("Choice-Fallback Steps", [ind_metrics["choice_fallback_steps"], dyad_metrics["choice_fallback_steps"]]),
+        ("Utility-Fallback Steps", [ind_metrics["utility_fallback_steps"], dyad_metrics["utility_fallback_steps"]]),
     ]
 
     fig, axes = plt.subplots(2, 2, figsize=(13, 9))
@@ -113,39 +113,39 @@ def plot_latent_boxplots(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create latent evaluation boxplots.")
+    parser = argparse.ArgumentParser(description="Create stoch evaluation boxplots.")
     parser.add_argument(
         "--ind-csv",
-        default="results/analysis/latent_ind_threshold_seed0_1000_analysis.csv",
-        help="Analysis CSV for the latent individual solver.",
+        default="results/analysis/stoch_ind_threshold_seed0_1000_analysis.csv",
+        help="Analysis CSV for the stoch ind solver.",
     )
     parser.add_argument(
-        "--collab-csv",
-        default="results/analysis/latent_collab_threshold_seed0_1000_analysis.csv",
-        help="Analysis CSV for the latent collaborative solver.",
+        "--dyad-csv",
+        default="results/analysis/stoch_dyad_threshold_seed0_1000_analysis.csv",
+        help="Analysis CSV for the stoch dyad solver.",
     )
     parser.add_argument(
         "--ind-log-dir",
-        default="results/runs/latent_ind_threshold_seed0_1000",
-        help="Folder containing latent individual JSON logs.",
+        default="results/runs/stoch_ind_threshold_seed0_1000",
+        help="Folder containing stoch ind JSON logs.",
     )
     parser.add_argument(
-        "--collab-log-dir",
-        default="results/runs/latent_collab_threshold_seed0_1000",
-        help="Folder containing latent collaborative JSON logs.",
+        "--dyad-log-dir",
+        default="results/runs/stoch_dyad_threshold_seed0_1000",
+        help="Folder containing stoch dyad JSON logs.",
     )
     parser.add_argument(
         "--output-path",
-        default="results/plots/latent_evaluation_boxplot_1000.png",
-        help="Destination path for the latent evaluation boxplot.",
+        default="results/plots/stoch_evaluation_boxplot_1000.png",
+        help="Destination path for the stoch evaluation boxplot.",
     )
     args = parser.parse_args()
 
-    plot_latent_boxplots(
+    plot_stoch_boxplots(
         ind_csv=args.ind_csv,
-        collab_csv=args.collab_csv,
+        dyad_csv=args.dyad_csv,
         ind_log_dir=args.ind_log_dir,
-        collab_log_dir=args.collab_log_dir,
+        dyad_log_dir=args.dyad_log_dir,
         output_path=args.output_path,
     )
 

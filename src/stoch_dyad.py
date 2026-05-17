@@ -316,7 +316,7 @@ def score_candidates(
         candidate["partner_compatible"] = partner_compatible
 
         utility = alpha * candidate["q_own"]
-        if utility_model == "collaborative":
+        if utility_model == "dyad":
             if info_gain is None:
                 utility = -math.inf
             else:
@@ -388,10 +388,10 @@ def candidate_table_entry(turn: int, candidate: Candidate, chosen: bool) -> Dict
     }
 
 
-def solve_latent_turn_based_logged(
+def solve_stoch_turn_based_logged(
     row_clues: List[List[int]],
     col_clues: List[List[int]],
-    utility_model: str = "individual",
+    utility_model: str = "ind",
     choice_set: str = "certainty1",
     alpha: float = 1.0,
     beta: float = 5.0,
@@ -459,12 +459,12 @@ def solve_latent_turn_based_logged(
                     grid=grid,
                     row_clues=row_clues,
                     col_clues=col_clues,
-                    utility_model="individual",
+                    utility_model="ind",
                     alpha=alpha,
                     beta=beta,
                     lambda_weight=lambda_weight,
                 )
-                effective_utility_model = "individual_fallback"
+                effective_utility_model = "ind_fallback"
                 utility_fallback_used = True
                 chosen_candidate = choose_candidate(candidates, rng)
             if chosen_candidate is None:
@@ -582,12 +582,12 @@ def augment_payload_with_candidate_tables(
 def default_solver_tag(utility_model: str, choice_set: str, tau: float, beta: float, seed: int) -> str:
     tau_token = f"tau-{tau:.2f}".replace(".", "p")
     beta_token = f"beta-{beta:.2f}".replace(".", "p")
-    return f"latent-{utility_model}__{choice_set}__{tau_token}__{beta_token}__seed-{seed}"
+    return f"stoch-{utility_model}__{choice_set}__{tau_token}__{beta_token}__seed-{seed}"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Simulate stochastic latent-choice row/column agents on the collaborative nonogram task."
+        description="Simulate stoch-choice row/column agents on the dyad nonogram task."
     )
     parser.add_argument("--x-path", help="Path to packed clue x_*.npz file")
     parser.add_argument("--y-path", help="Optional path to target y_*.npz file")
@@ -597,8 +597,8 @@ def main() -> None:
     parser.add_argument("--sample-end", type=int, help="Optional batch end index (exclusive)")
     parser.add_argument(
         "--utility-model",
-        choices=["individual", "collaborative"],
-        default="individual",
+        choices=["ind", "dyad"],
+        default="ind",
         help="Whether utility uses only Q_own or Q_own + lambda * B_partner_local.",
     )
     parser.add_argument(
@@ -619,7 +619,7 @@ def main() -> None:
         "--lambda-weight",
         type=float,
         default=1.0,
-        help="Weight on local partner-information gain in collaborative utility.",
+        help="Weight on local partner-information gain in dyad utility.",
     )
     parser.add_argument("--seed", type=int, default=0, help="Random seed for stochastic choice.")
     parser.add_argument(
@@ -642,7 +642,7 @@ def main() -> None:
         raise ValueError("Use --output-dir instead of --json-path in batch mode")
 
     if args.x_path is None:
-        raise ValueError("latent_collab.py currently requires --x-path")
+        raise ValueError("stoch_dyad.py currently requires --x-path")
 
     x_array = load_npz_array(args.x_path)
     y_array = load_dataset_targets(args.y_path)
@@ -670,7 +670,7 @@ def main() -> None:
             y_path=args.y_path,
         )
         max_turns = args.max_turns or default_max_turns(row_clues, col_clues)
-        final_grid, log, candidate_steps = solve_latent_turn_based_logged(
+        final_grid, log, candidate_steps = solve_stoch_turn_based_logged(
             row_clues=row_clues,
             col_clues=col_clues,
             utility_model=args.utility_model,
@@ -695,7 +695,7 @@ def main() -> None:
             y_path=args.y_path,
             sample_idx=idx,
             metadata_extra={
-                "solver": "latent_collab",
+                "solver": "stoch_dyad",
                 "utility_model": args.utility_model,
                 "choice_set": args.choice_set,
                 "alpha": args.alpha,

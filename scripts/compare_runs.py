@@ -145,18 +145,18 @@ def paired_summary(rows: List[Dict[str, str]]) -> Optional[Dict[str, Any]]:
     by_key: Dict[Tuple[str, str, str, str], Dict[str, Dict[str, str]]] = defaultdict(dict)
     for row in rows:
         solver = as_str(row, "solver")
-        if solver not in {"collab", "ind"}:
+        if solver not in {"dyad", "ind"}:
             continue
         by_key[pair_key(row)][solver] = row
 
-    pairs = [entry for entry in by_key.values() if "collab" in entry and "ind" in entry]
+    pairs = [entry for entry in by_key.values() if "dyad" in entry and "ind" in entry]
     if not pairs:
         return None
 
-    collab_better_solved = 0
+    dyad_better_solved = 0
     ind_better_solved = 0
     same_solved = 0
-    collab_lower_unknown = 0
+    dyad_lower_unknown = 0
     ind_lower_unknown = 0
     tied_unknown = 0
 
@@ -166,44 +166,44 @@ def paired_summary(rows: List[Dict[str, str]]) -> Optional[Dict[str, Any]]:
     pass_event_deltas: List[float] = []
 
     for pair in pairs:
-        collab = pair["collab"]
+        dyad = pair["dyad"]
         ind = pair["ind"]
 
-        collab_solved = as_float(collab, "solved")
+        dyad_solved = as_float(dyad, "solved")
         ind_solved = as_float(ind, "solved")
-        if collab_solved > ind_solved:
-            collab_better_solved += 1
-        elif ind_solved > collab_solved:
+        if dyad_solved > ind_solved:
+            dyad_better_solved += 1
+        elif ind_solved > dyad_solved:
             ind_better_solved += 1
         else:
             same_solved += 1
 
-        collab_unknown = as_float(collab, "unknown_ratio")
+        dyad_unknown = as_float(dyad, "unknown_ratio")
         ind_unknown = as_float(ind, "unknown_ratio")
-        if collab_unknown < ind_unknown:
-            collab_lower_unknown += 1
-        elif ind_unknown < collab_unknown:
+        if dyad_unknown < ind_unknown:
+            dyad_lower_unknown += 1
+        elif ind_unknown < dyad_unknown:
             ind_lower_unknown += 1
         else:
             tied_unknown += 1
 
-        unknown_deltas.append(collab_unknown - ind_unknown)
-        difficulty_deltas.append(as_float(collab, "difficulty_score") - as_float(ind, "difficulty_score"))
-        action_turn_deltas.append(as_float(collab, "action_turns") - as_float(ind, "action_turns"))
-        pass_event_deltas.append(as_float(collab, "pass_events") - as_float(ind, "pass_events"))
+        unknown_deltas.append(dyad_unknown - ind_unknown)
+        difficulty_deltas.append(as_float(dyad, "difficulty_score") - as_float(ind, "difficulty_score"))
+        action_turn_deltas.append(as_float(dyad, "action_turns") - as_float(ind, "action_turns"))
+        pass_event_deltas.append(as_float(dyad, "pass_events") - as_float(ind, "pass_events"))
 
     return {
         "paired_samples": len(pairs),
-        "collab_better_solved": collab_better_solved,
+        "dyad_better_solved": dyad_better_solved,
         "ind_better_solved": ind_better_solved,
         "same_solved": same_solved,
-        "collab_lower_unknown": collab_lower_unknown,
+        "dyad_lower_unknown": dyad_lower_unknown,
         "ind_lower_unknown": ind_lower_unknown,
         "tied_unknown": tied_unknown,
-        "mean_unknown_ratio_delta_collab_minus_ind": format_float(safe_mean(unknown_deltas)),
-        "mean_difficulty_delta_collab_minus_ind": format_float(safe_mean(difficulty_deltas)),
-        "mean_action_turn_delta_collab_minus_ind": format_float(safe_mean(action_turn_deltas)),
-        "mean_pass_event_delta_collab_minus_ind": format_float(safe_mean(pass_event_deltas)),
+        "mean_unknown_ratio_delta_dyad_minus_ind": format_float(safe_mean(unknown_deltas)),
+        "mean_difficulty_delta_dyad_minus_ind": format_float(safe_mean(difficulty_deltas)),
+        "mean_action_turn_delta_dyad_minus_ind": format_float(safe_mean(action_turn_deltas)),
+        "mean_pass_event_delta_dyad_minus_ind": format_float(safe_mean(pass_event_deltas)),
     }
 
 
@@ -263,7 +263,7 @@ def make_plot(rows: List[Dict[str, str]], output_path: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Compare collab and ind runs from the analysis CSV."
+        description="Compare dyad and ind runs from the analysis CSV."
     )
     parser.add_argument("--analysis-csv", required=True, help="CSV produced by scripts/analyze_logs.py")
     parser.add_argument("--summary-csv", help="Optional output CSV for the solver summary table")
@@ -321,7 +321,7 @@ def main() -> None:
     else:
         print()
         print("Paired Comparison")
-        print("No collab/ind sample pairs were found in the CSV.")
+        print("No dyad/ind sample pairs were found in the CSV.")
 
     if args.summary_csv:
         write_summary_csv(
