@@ -3,15 +3,8 @@
 __pycache__/
 *.pyc
 
-logs/
-gifs/
-outputs/
-NonoDataset-main/
 archive/
-
-nonogram_replay.gif
-nonogram_turn_log.json
-nonogram_turn_log.csv
-nonogram_log_analysis.csv
-
-*.mp4
+data/
+results/
+notes/
+tests/

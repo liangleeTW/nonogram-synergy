@@ -2,16 +2,16 @@
 Create boxplot-based latent-evaluation figures from saved analysis CSV files and latent JSON logs.
 
 Input:
-- outputs/analysis/latent_ind_threshold_seed0_1000_analysis.csv
-- outputs/analysis/latent_collab_threshold_seed0_1000_analysis.csv
-- outputs/runs/latent_ind_threshold_seed0_1000/*.json
-- outputs/runs/latent_collab_threshold_seed0_1000/*.json
+- results/analysis/latent_ind_threshold_seed0_1000_analysis.csv
+- results/analysis/latent_collab_threshold_seed0_1000_analysis.csv
+- results/runs/latent_ind_threshold_seed0_1000/*.json
+- results/runs/latent_collab_threshold_seed0_1000/*.json
 
 Output:
-- outputs/plots/latent_evaluation_boxplot_1000.png
+- results/plots/latent_evaluation_boxplot_1000.png
 
 Run:
-- .venv/bin/python plot_latent_boxplots.py
+- .venv/bin/python scripts/plot_latent_boxplots.py
 """
 
 from __future__ import annotations
@@ -116,27 +116,27 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Create latent evaluation boxplots.")
     parser.add_argument(
         "--ind-csv",
-        default="outputs/analysis/latent_ind_threshold_seed0_1000_analysis.csv",
+        default="results/analysis/latent_ind_threshold_seed0_1000_analysis.csv",
         help="Analysis CSV for the latent individual solver.",
     )
     parser.add_argument(
         "--collab-csv",
-        default="outputs/analysis/latent_collab_threshold_seed0_1000_analysis.csv",
+        default="results/analysis/latent_collab_threshold_seed0_1000_analysis.csv",
         help="Analysis CSV for the latent collaborative solver.",
     )
     parser.add_argument(
         "--ind-log-dir",
-        default="outputs/runs/latent_ind_threshold_seed0_1000",
+        default="results/runs/latent_ind_threshold_seed0_1000",
         help="Folder containing latent individual JSON logs.",
     )
     parser.add_argument(
         "--collab-log-dir",
-        default="outputs/runs/latent_collab_threshold_seed0_1000",
+        default="results/runs/latent_collab_threshold_seed0_1000",
         help="Folder containing latent collaborative JSON logs.",
     )
     parser.add_argument(
         "--output-path",
-        default="outputs/plots/latent_evaluation_boxplot_1000.png",
+        default="results/plots/latent_evaluation_boxplot_1000.png",
         help="Destination path for the latent evaluation boxplot.",
     )
     args = parser.parse_args()

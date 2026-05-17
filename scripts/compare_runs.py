@@ -265,7 +265,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Compare collab and ind runs from the analysis CSV."
     )
-    parser.add_argument("--analysis-csv", required=True, help="CSV produced by analyze_logs.py")
+    parser.add_argument("--analysis-csv", required=True, help="CSV produced by scripts/analyze_logs.py")
     parser.add_argument("--summary-csv", help="Optional output CSV for the solver summary table")
     parser.add_argument("--size-summary-csv", help="Optional output CSV for the solver-by-size table")
     parser.add_argument("--plot-path", help="Optional bar chart output path")

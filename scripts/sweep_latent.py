@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from itertools import product
 from pathlib import Path
 from typing import Any, Dict, List
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from latent_collab import (
     augment_payload_with_candidate_tables,
@@ -94,7 +97,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output-csv",
-        default="latent_sweep_summary.csv",
+        default="results/analysis/latent_sweep_summary.csv",
         help="Destination CSV path for the sweep summary.",
     )
     parser.add_argument(

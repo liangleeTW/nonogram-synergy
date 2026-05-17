@@ -448,7 +448,7 @@ def main() -> None:
     parser.add_argument("--log-dir", required=True, help="Folder containing JSON log files")
     parser.add_argument(
         "--output-csv",
-        default="nonogram_log_analysis.csv",
+        default="results/analysis/nonogram_log_analysis.csv",
         help="Destination CSV path",
     )
     args = parser.parse_args()

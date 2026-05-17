@@ -353,7 +353,9 @@ def build_log_payload(
 
 
 def save_log_json(payload: Dict[str, Any], filepath: str) -> None:
-    with open(filepath, "w", encoding="utf-8") as f:
+    path = Path(filepath)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
@@ -364,10 +366,10 @@ def make_default_log_path(
     output_dir: Optional[str] = None,
 ) -> str:
     if x_path is None:
-        return "nonogram_turn_log.json"
+        return "results/logs/nonogram_turn_log.json"
 
     x_stem = Path(x_path).stem
-    dirname = output_dir or f"logs/{x_stem}__{solver_tag}"
+    dirname = output_dir or f"results/logs/{x_stem}__{solver_tag}"
     path = Path(dirname)
     path.mkdir(parents=True, exist_ok=True)
 

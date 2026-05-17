@@ -40,7 +40,7 @@ def collect_log_paths(
         paths.extend(sorted(Path(log_dir).glob("*.json")))
 
     if not paths:
-        paths = [Path("nonogram_turn_log.json")]
+        paths = [Path("results/logs/nonogram_turn_log.json")]
 
     unique_paths = sorted({path.resolve() for path in paths})
     return [str(path) for path in unique_paths]

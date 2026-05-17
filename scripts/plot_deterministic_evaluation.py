@@ -2,14 +2,14 @@
 Create deterministic-evaluation plots from saved analysis CSV files.
 
 Input:
-- outputs/analysis/deterministic_collab_1000_analysis.csv
-- outputs/analysis/deterministic_ind_1000_analysis.csv
+- results/analysis/deterministic_collab_1000_analysis.csv
+- results/analysis/deterministic_ind_1000_analysis.csv
 
 Output:
-- outputs/plots/deterministic_evaluation_1000.png
+- results/plots/deterministic_evaluation_1000.png
 
 Run:
-- .venv/bin/python plot_deterministic_evaluation.py
+- .venv/bin/python scripts/plot_deterministic_evaluation.py
 """
 
 from __future__ import annotations
@@ -143,17 +143,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Plot deterministic nonogram evaluation summaries.")
     parser.add_argument(
         "--collab-csv",
-        default="outputs/analysis/deterministic_collab_1000_analysis.csv",
+        default="results/analysis/deterministic_collab_1000_analysis.csv",
         help="Analysis CSV for the deterministic collaborative solver.",
     )
     parser.add_argument(
         "--ind-csv",
-        default="outputs/analysis/deterministic_ind_1000_analysis.csv",
+        default="results/analysis/deterministic_ind_1000_analysis.csv",
         help="Analysis CSV for the deterministic individual solver.",
     )
     parser.add_argument(
         "--output-path",
-        default="outputs/plots/deterministic_evaluation_1000.png",
+        default="results/plots/deterministic_evaluation_1000.png",
         help="Destination path for the deterministic evaluation plot.",
     )
     args = parser.parse_args()

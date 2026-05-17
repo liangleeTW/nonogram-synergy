@@ -11,26 +11,37 @@ There are two layers in the codebase:
 - deterministic line-solver scripts used as engineering baselines
 - stochastic latent-choice scripts used as cognitive process models
 
+## Repository Layout
+
+- `src/`: reusable solver/model code and primary solver entry points
+- `scripts/`: batch runners, analysis, plotting, and visualization utilities
+- `data/`: downloaded datasets
+- `results/`: generated logs, CSVs, plots, animations, and other run outputs
+- `notes/`: project notes and process notes
+- `archive/`: old outputs/code kept only for reference
+- `tests/`: scratch notebooks or ad hoc testing material
+
 ## What Each File Does
 
 Core solver and data utilities:
-- `solver_common.py`: shared constants, dataset loading, clue decoding, line-pattern generation, forced-cell extraction, JSON log building
+- `src/solver_common.py`: shared constants, dataset loading, clue decoding, line-pattern generation, forced-cell extraction, JSON log building
 
 Deterministic solver entry points:
-- `collab.py`: two-agent collaborative condition; row agent sees only row clues, column agent sees only column clues
-- `ind.py`: one-agent full-information baseline; the single agent sees both clue sets but still makes one line-justified move at a time
+- `src/collab.py`: two-agent collaborative condition; row agent sees only row clues, column agent sees only column clues
+- `src/ind.py`: one-agent full-information baseline; the single agent sees both clue sets but still makes one line-justified move at a time
 
 Stochastic latent-choice entry points:
-- `latent_collab.py`: partial-information row/column agents with stochastic choice over line-based candidate actions
-- `sweep_latent.py`: batch runner for repeated latent-model simulations over seeds and parameter settings
+- `src/latent_collab.py`: partial-information row/column agents with stochastic choice over line-based candidate actions
+- `src/latent_ind.py`: full-information individual latent-choice model
+- `scripts/sweep_latent.py`: batch runner for repeated latent-model simulations over seeds and parameter settings
 
 Visualization and analysis:
-- `vis.py`: converts solver JSON logs into GIF or MP4 replay animations
-- `analyze_logs.py`: converts a directory of JSON logs into a per-run CSV with summary, complexity, and difficulty measures
-- `compare_runs.py`: compares `collab` and `ind` runs from the analysis CSV and can also save a simple plot
+- `scripts/vis.py`: converts solver JSON logs into GIF or MP4 replay animations
+- `scripts/analyze_logs.py`: converts a directory of JSON logs into a per-run CSV with summary, complexity, and difficulty measures
+- `scripts/compare_runs.py`: compares `collab` and `ind` runs from the analysis CSV and can also save a simple plot
 
 Notes:
-- `notes/MODEL.md`: practical explanation of the stochastic latent-choice model used in `latent_collab.py`
+- `notes/MODEL.md`: practical explanation of the stochastic latent-choice model used in `src/latent_collab.py`
 - `notes/note.md`: broader conceptual modeling note for the latent behavioral models
 - `notes/line_solver.md`: notes about the deterministic line-solver logic
 - `notes/information.md`: supporting project notes
@@ -50,10 +61,10 @@ Current dataset examples:
 
 Output files:
 - solver scripts write JSON logs
-- `vis.py` writes GIF or MP4 files
-- `analyze_logs.py` writes a summary CSV
-- `compare_runs.py` can write comparison CSVs and a plot
-- `sweep_latent.py` writes a simulation-summary CSV and can optionally save per-run JSON logs
+- `scripts/vis.py` writes GIF or MP4 files
+- `scripts/analyze_logs.py` writes a summary CSV
+- `scripts/compare_runs.py` can write comparison CSVs and a plot
+- `scripts/sweep_latent.py` writes a simulation-summary CSV and can optionally save per-run JSON logs
 
 ## How To Run The Project
 
@@ -79,7 +90,7 @@ poetry install
 ### Step 2. Run One Deterministic Collaborative Example
 
 ```bash
-python collab.py \
+python src/collab.py \
   --x-path <path-to-x_test_dataset.npz> \
   --y-path <path-to-y_test_dataset.npz> \
   --sample-idx 0 \
@@ -90,7 +101,7 @@ python collab.py \
 ### Step 3. Run One Deterministic Individual Baseline Example
 
 ```bash
-python ind.py \
+python src/ind.py \
   --x-path <path-to-x_test_dataset.npz> \
   --y-path <path-to-y_test_dataset.npz> \
   --sample-idx 0 \
@@ -101,7 +112,7 @@ python ind.py \
 ### Step 4. Visualize A Solver Log
 
 ```bash
-python vis.py \
+python scripts/vis.py \
   --log-path /tmp/collab_sample0.json \
   --gif-path /tmp/collab_sample0.gif
 ```
@@ -111,7 +122,7 @@ python vis.py \
 Collaborative solver over a sample range:
 
 ```bash
-python collab.py \
+python src/collab.py \
   --x-path <path-to-x_test_dataset.npz> \
   --y-path <path-to-y_test_dataset.npz> \
   --sample-start 0 \
@@ -123,7 +134,7 @@ python collab.py \
 Individual baseline over a sample range:
 
 ```bash
-python ind.py \
+python src/ind.py \
   --x-path <path-to-x_test_dataset.npz> \
   --y-path <path-to-y_test_dataset.npz> \
   --sample-start 0 \
@@ -135,22 +146,22 @@ python ind.py \
 Run the whole dataset:
 
 ```bash
-python collab.py --x-path <path-to-x_test_dataset.npz> --y-path <path-to-y_test_dataset.npz> --all-samples --output-dir /tmp/collab_logs_all --quiet
-python ind.py --x-path <path-to-x_test_dataset.npz> --y-path <path-to-y_test_dataset.npz> --all-samples --output-dir /tmp/ind_logs_all --quiet
+python src/collab.py --x-path <path-to-x_test_dataset.npz> --y-path <path-to-y_test_dataset.npz> --all-samples --output-dir /tmp/collab_logs_all --quiet
+python src/ind.py --x-path <path-to-x_test_dataset.npz> --y-path <path-to-y_test_dataset.npz> --all-samples --output-dir /tmp/ind_logs_all --quiet
 ```
 
 ### Step 6. Analyze Deterministic Logs
 
 ```bash
-python analyze_logs.py \
+python scripts/analyze_logs.py \
   --log-dir /tmp/collab_logs \
   --output-csv /tmp/collab_analysis.csv
 ```
 
-If you want to use `compare_runs.py`, first create an analysis CSV from a directory that contains both `collab.py` and `ind.py` logs for the same samples.
+If you want to use `scripts/compare_runs.py`, first create an analysis CSV from a directory that contains both `src/collab.py` and `src/ind.py` logs for the same samples.
 
 ```bash
-python compare_runs.py \
+python scripts/compare_runs.py \
   --analysis-csv /tmp/mixed_analysis.csv \
   --summary-csv /tmp/summary.csv \
   --size-summary-csv /tmp/size_summary.csv \
@@ -162,7 +173,7 @@ python compare_runs.py \
 One stochastic latent run:
 
 ```bash
-python latent_collab.py \
+python src/latent_collab.py \
   --x-path <path-to-x_test_dataset.npz> \
   --y-path <path-to-y_test_dataset.npz> \
   --sample-idx 0 \
@@ -179,7 +190,7 @@ python latent_collab.py \
 Sweep over many runs:
 
 ```bash
-python sweep_latent.py \
+python scripts/sweep_latent.py \
   --x-path <path-to-x_test_dataset.npz> \
   --y-path <path-to-y_test_dataset.npz> \
   --sample-start 0 \
@@ -212,10 +223,10 @@ Shared output flags:
 - `--quiet`: disable turn-by-turn printing
 
 Deterministic solver options:
-- `collab.py --row-strategy {first,random,most_constrained}`
-- `collab.py --col-strategy {first,random,most_constrained}`
-- `ind.py --strategy {first,random,most_constrained}`
-- `ind.py --row-strategy` and `--col-strategy`: aliases kept for interface compatibility with `collab.py`
+- `src/collab.py --row-strategy {first,random,most_constrained}`
+- `src/collab.py --col-strategy {first,random,most_constrained}`
+- `src/ind.py --strategy {first,random,most_constrained}`
+- `src/ind.py --row-strategy` and `--col-strategy`: aliases kept for interface compatibility with `src/collab.py`
 - `--max-turns`: default is `2 * number_of_cells`
 
 Latent-model options:
@@ -228,22 +239,22 @@ Latent-model options:
 - `--seed`: random seed
 
 Visualization options:
-- `vis.py --log-path`: one or more JSON logs
-- `vis.py --log-dir`: directory of logs
-- `vis.py --gif-path`: single GIF output path
-- `vis.py --output-dir`: batch GIF output directory
-- `vis.py --interval`: animation frame interval
+- `scripts/vis.py --log-path`: one or more JSON logs
+- `scripts/vis.py --log-dir`: directory of logs
+- `scripts/vis.py --gif-path`: single GIF output path
+- `scripts/vis.py --output-dir`: batch GIF output directory
+- `scripts/vis.py --interval`: animation frame interval
 
 ## Output Structure
 
-`collab.py`, `ind.py`, and `latent_collab.py` all write JSON logs with the same top-level structure:
+`src/collab.py`, `src/ind.py`, and `src/latent_collab.py` all write JSON logs with the same top-level structure:
 - `metadata`
 - `summary`
 - `target_grid`
 - `final_grid`
 - `events`
 
-`latent_collab.py` additionally writes:
+`src/latent_collab.py` additionally writes:
 - `candidate_steps`
 
 Important summary fields:
@@ -264,7 +275,7 @@ For stochastic latent runs with sub-certain actions, they can diverge.
 
 Both solver scripts use the same underlying line-solver core.
 
-### Collaborative Solver: `collab.py`
+### Collaborative Solver: `src/collab.py`
 
 ### What Each Agent Sees
 
@@ -314,11 +325,11 @@ It also stops if:
 - the puzzle is fully solved
 - `max_turns` is reached
 
-If `--max-turns` is not given, `collab.py` sets it to `2 * number_of_cells`.
+If `--max-turns` is not given, `src/collab.py` sets it to `2 * number_of_cells`.
 
 ### Move Selection
 
-When an agent has multiple valid forced moves, `collab.py` can choose among them with:
+When an agent has multiple valid forced moves, `src/collab.py` can choose among them with:
 - `first`
 - `random`
 - `most_constrained`
@@ -334,7 +345,7 @@ This solver is deliberately limited:
 
 That makes the log useful for studying collaboration, coordination, passing behavior, and how partial information shapes action.
 
-### Individual Baseline: `ind.py`
+### Individual Baseline: `src/ind.py`
 
 ### What The Agent Sees
 
@@ -362,7 +373,7 @@ It also stops if:
 
 ### Move Selection
 
-When the individual agent has multiple valid forced moves, `ind.py` can choose among them with:
+When the individual agent has multiple valid forced moves, `src/ind.py` can choose among them with:
 - `first`
 - `random`
 - `most_constrained`
@@ -371,10 +382,10 @@ The default is `first`.
 
 ### Why This Is Useful For Your Research
 
-This baseline keeps the same line-solver logic and log format as `collab.py`, but removes the distributed-information split.
+This baseline keeps the same line-solver logic and log format as `src/collab.py`, but removes the distributed-information split.
 
 That makes it useful for isolating the effect of collaboration itself:
-- if `ind.py` succeeds and `collab.py` stalls, the split information is the bottleneck
+- if `src/ind.py` succeeds and `src/collab.py` stalls, the split information is the bottleneck
 - if both stall, the limitation is more likely the bounded line-solver itself
 
 ## Why JSON Only
@@ -394,7 +405,7 @@ CSV is possible, but it becomes harder to read and less useful once the log incl
 - `--sample-start` and `--sample-end` enable batch mode over a range
 - `--sample-end` is exclusive, so `--sample-start 0 --sample-end 10` runs samples `0` through `9`
 - In batch mode, output filenames are generated automatically so logs do not overwrite each other
-- In `vis.py`, GIF names are derived from the JSON log filename, so multiple GIFs do not overwrite each other unless you explicitly point them to the same path
+- In `scripts/vis.py`, GIF names are derived from the JSON log filename, so multiple GIFs do not overwrite each other unless you explicitly point them to the same path
 
 ## Complexity And Difficulty
 
@@ -417,7 +428,7 @@ So complexity answers:
 - how structurally rich is this puzzle?
 - how much internal patterning does it contain?
 
-Current score formula in `analyze_logs.py`:
+Current score formula in `scripts/analyze_logs.py`:
 
 ```text
 complexity_score = 100 * (
@@ -489,7 +500,7 @@ So difficulty answers:
 - how hard is this puzzle for this specific solver setup?
 - does the collaboration stall early, stall late, or solve smoothly?
 
-Current score formula in `analyze_logs.py`:
+Current score formula in `scripts/analyze_logs.py`:
 
 ```text
 difficulty_score = 100 * (
@@ -775,7 +786,7 @@ This sample is labeled `trivial` because:
 
 ## Log Analysis
 
-`analyze_logs.py` reads a folder of JSON log files and exports one CSV row per nonogram.
+`scripts/analyze_logs.py` reads a folder of JSON log files and exports one CSV row per nonogram.
 
 The CSV includes:
 - puzzle id
@@ -793,7 +804,7 @@ The final `overall_label` is intended as a convenient summary column for filteri
 ### Run Log Analysis
 
 ```bash
-python analyze_logs.py \
+python scripts/analyze_logs.py \
   --log-dir /tmp/collab_logs \
   --output-csv /tmp/nonogram_log_analysis.csv
 ```
@@ -806,7 +817,7 @@ The CSV now records solver-specific run metadata for both conditions, including:
 ### Compare `collab` And `ind`
 
 ```bash
-python compare_runs.py \
+python scripts/compare_runs.py \
   --analysis-csv /tmp/nonogram_log_analysis.csv \
   --summary-csv /tmp/nonogram_compare_summary.csv \
   --size-summary-csv /tmp/nonogram_compare_by_size.csv \
@@ -825,7 +836,7 @@ It can also save summary CSVs and a simple comparison plot.
 Simulate stochastic row/column agents with different candidate-set definitions:
 
 ```bash
-python latent_collab.py \
+python src/latent_collab.py \
   --x-path <path-to-x_test_dataset.npz> \
   --y-path <path-to-y_test_dataset.npz> \
   --sample-idx 54 \
@@ -854,7 +865,7 @@ The JSON output keeps the normal event log and also adds:
 Run a compact simulation sweep and save a CSV summary:
 
 ```bash
-python sweep_latent.py \
+python scripts/sweep_latent.py \
   --x-path <path-to-x_test_dataset.npz> \
   --y-path <path-to-y_test_dataset.npz> \
   --sample-idx 54 \
@@ -881,7 +892,7 @@ This summary CSV records per-run quantities such as:
 ### Example Use
 
 Typical workflow:
-1. run `collab.py` or `ind.py` on many samples to generate JSON logs
-2. run `analyze_logs.py` on the log folder
-3. run `compare_runs.py` on the analysis CSV if you want direct baseline-vs-collaboration summaries
+1. run `src/collab.py` or `src/ind.py` on many samples to generate JSON logs
+2. run `scripts/analyze_logs.py` on the log folder
+3. run `scripts/compare_runs.py` on the analysis CSV if you want direct baseline-vs-collaboration summaries
 4. inspect the CSVs or plots and filter puzzles based on `complexity`, `difficulty`, or solver differences

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import copy
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from solver_common import (
     UNKNOWN,
@@ -28,54 +28,67 @@ from solver_common import (
 )
 
 
-def individual_agent_move(
+def row_agent_move(
     grid: List[List[int]],
     row_clues: List[List[int]],
-    col_clues: List[List[int]],
     strategy: str = "first",
 ) -> Optional[Move]:
     n_rows = len(grid)
     n_cols = len(grid[0])
-    candidates: Dict[Tuple[int, int, int], Tuple[Move, int]] = {}
+    scored_candidates = []
 
     for r in range(n_rows):
         unknowns = sum(cell == UNKNOWN for cell in grid[r])
         forced = get_forced_cells_from_line(n_cols, row_clues[r], grid[r])
         for c, value in forced:
-            move = (r, c, value, f"row={r}, row_clue={row_clues[r]}")
-            key = (r, c, value)
-            existing = candidates.get(key)
-            if existing is None or unknowns < existing[1]:
-                candidates[key] = (move, unknowns)
+            expl = f"row={r}, row_clue={row_clues[r]}"
+            scored_candidates.append(((r, c, value, expl), unknowns))
+
+    return select_scored_move(scored_candidates, strategy)
+
+
+def col_agent_move(
+    grid: List[List[int]],
+    col_clues: List[List[int]],
+    strategy: str = "first",
+) -> Optional[Move]:
+    n_rows = len(grid)
+    n_cols = len(grid[0])
+    scored_candidates = []
 
     for c in range(n_cols):
         col = get_column(grid, c)
         unknowns = sum(grid[r][c] == UNKNOWN for r in range(n_rows))
         forced = get_forced_cells_from_line(n_rows, col_clues[c], col)
         for r, value in forced:
-            move = (r, c, value, f"col={c}, col_clue={col_clues[c]}")
-            key = (r, c, value)
-            existing = candidates.get(key)
-            if existing is None or unknowns < existing[1]:
-                candidates[key] = (move, unknowns)
+            expl = f"col={c}, col_clue={col_clues[c]}"
+            scored_candidates.append(((r, c, value, expl), unknowns))
 
-    return select_scored_move(list(candidates.values()), strategy)
+    return select_scored_move(scored_candidates, strategy)
 
 
-def solve_individual_turn_based_logged(
+# =========================
+# Solver with turn logging
+# =========================
+
+def solve_two_agent_turn_based_logged(
     row_clues: List[List[int]],
     col_clues: List[List[int]],
-    strategy: str = "first",
+    row_strategy: str = "first",
+    col_strategy: str = "first",
     max_turns: int = 1000,
     verbose: bool = True,
-) -> Tuple[List[List[int]], List[dict]]:
+) -> Tuple[List[List[int]], List[Dict[str, Any]]]:
     n_rows = len(row_clues)
     n_cols = len(col_clues)
 
     grid = [[UNKNOWN for _ in range(n_cols)] for _ in range(n_rows)]
-    log: List[dict] = []
+    log: List[Dict[str, Any]] = []
 
     turn = 0
+    consecutive_passes = 0
+
+    # initial state
     log_event(
         log,
         turn=0,
@@ -91,24 +104,51 @@ def solve_individual_turn_based_logged(
         print_grid(grid)
 
     while turn < max_turns and not is_solved(grid):
+        # Row turn
         turn += 1
         grid_before = copy.deepcopy(grid)
-        move = individual_agent_move(grid, row_clues, col_clues, strategy=strategy)
-
+        move = row_agent_move(grid, row_clues, strategy=row_strategy)
         if move is not None:
             apply_move(grid, move)
-            log_event(log, turn, "ind", "write", grid_before, grid, move)
+            consecutive_passes = 0
+            log_event(log, turn, "row", "write", grid_before, grid, move)
             if verbose:
                 r, c, value, explanation = move
-                print(f"Turn {turn} | IND writes ({r}, {c}) = {cell_to_char(value)} | {explanation}")
+                print(f"Turn {turn} | ROW writes ({r}, {c}) = {cell_to_char(value)} | {explanation}")
                 print_grid(grid)
         else:
-            log_event(log, turn, "ind", "pass", grid_before, grid, None)
+            consecutive_passes += 1
+            log_event(log, turn, "row", "pass", grid_before, grid, None)
             if verbose:
-                print(f"Turn {turn} | IND passes")
-                print("Individual agent has no forced move. Stopping.")
+                print(f"Turn {turn} | ROW passes")
+
+        if turn >= max_turns or is_solved(grid):
             break
 
+        # Column turn
+        turn += 1
+        grid_before = copy.deepcopy(grid)
+        move = col_agent_move(grid, col_clues, strategy=col_strategy)
+        if move is not None:
+            apply_move(grid, move)
+            consecutive_passes = 0
+            log_event(log, turn, "col", "write", grid_before, grid, move)
+            if verbose:
+                r, c, value, explanation = move
+                print(f"Turn {turn} | COL writes ({r}, {c}) = {cell_to_char(value)} | {explanation}")
+                print_grid(grid)
+        else:
+            consecutive_passes += 1
+            log_event(log, turn, "col", "pass", grid_before, grid, None)
+            if verbose:
+                print(f"Turn {turn} | COL passes")
+
+        if consecutive_passes >= 2:
+            if verbose:
+                print("Both agents passed consecutively. Stopping.")
+            break
+
+    # final state marker
     log_event(log, turn + 1, "system", "end", grid, grid, None)
 
     if verbose:
@@ -118,34 +158,13 @@ def solve_individual_turn_based_logged(
     return grid, log
 
 
-def resolve_strategy(args: argparse.Namespace) -> str:
-    chosen = args.strategy
-    aliases = [value for value in (args.row_strategy, args.col_strategy) if value is not None]
-
-    if aliases and args.strategy != "first":
-        for alias in aliases:
-            if alias != args.strategy:
-                raise ValueError(
-                    "Use a single strategy for ind.py. --strategy, --row-strategy, "
-                    "and --col-strategy must agree when provided."
-                )
-
-    if aliases:
-        first_alias = aliases[0]
-        for alias in aliases[1:]:
-            if alias != first_alias:
-                raise ValueError(
-                    "Use a single strategy for ind.py. --row-strategy and --col-strategy "
-                    "must match when both are provided."
-                )
-        chosen = first_alias
-
-    return chosen
-
+# =========================
+# Example usage
+# =========================
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Solve a nonogram with the single-agent full-information line solver."
+        description="Solve a nonogram with the turn-based two-agent line solver."
     )
     parser.add_argument("--x-path", help="Path to packed clue x_*.npz file")
     parser.add_argument("--y-path", help="Optional path to target y_*.npz file")
@@ -162,19 +181,14 @@ if __name__ == "__main__":
         help="Optional batch end index (exclusive). Enables batch mode.",
     )
     parser.add_argument(
-        "--strategy",
+        "--row-strategy",
         choices=["first", "random", "most_constrained"],
         default="first",
     )
     parser.add_argument(
-        "--row-strategy",
-        choices=["first", "random", "most_constrained"],
-        help="Optional alias for --strategy to keep the interface close to collab.py.",
-    )
-    parser.add_argument(
         "--col-strategy",
         choices=["first", "random", "most_constrained"],
-        help="Optional alias for --strategy to keep the interface close to collab.py.",
+        default="first",
     )
     parser.add_argument(
         "--max-turns",
@@ -189,7 +203,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    strategy = resolve_strategy(args)
     batch_mode = args.all_samples or args.sample_start is not None or args.sample_end is not None
 
     if batch_mode and not args.x_path:
@@ -225,10 +238,11 @@ if __name__ == "__main__":
             [1, 3],
         ]
         max_turns = args.max_turns or default_max_turns(row_clues, col_clues)
-        final_grid, log = solve_individual_turn_based_logged(
+        final_grid, log = solve_two_agent_turn_based_logged(
             row_clues=row_clues,
             col_clues=col_clues,
-            strategy=strategy,
+            row_strategy=args.row_strategy,
+            col_strategy=args.col_strategy,
             max_turns=max_turns,
             verbose=not args.quiet,
         )
@@ -244,13 +258,12 @@ if __name__ == "__main__":
             y_path=args.y_path,
             sample_idx=None,
             metadata_extra={
-                "solver": "ind",
-                "strategy": strategy,
-                "row_strategy": strategy,
-                "col_strategy": strategy,
+                "solver": "collab",
+                "row_strategy": args.row_strategy,
+                "col_strategy": args.col_strategy,
             },
         )
-        output_path = args.json_path or "nonogram_turn_log.json"
+        output_path = args.json_path or "results/logs/nonogram_turn_log.json"
         save_log_json(payload, output_path)
 
         unresolved = count_unknown_cells(final_grid)
@@ -286,10 +299,11 @@ if __name__ == "__main__":
                 y_path=args.y_path,
             )
             max_turns = args.max_turns or default_max_turns(row_clues, col_clues)
-            final_grid, log = solve_individual_turn_based_logged(
+            final_grid, log = solve_two_agent_turn_based_logged(
                 row_clues=row_clues,
                 col_clues=col_clues,
-                strategy=strategy,
+                row_strategy=args.row_strategy,
+                col_strategy=args.col_strategy,
                 max_turns=max_turns,
                 verbose=not args.quiet,
             )
@@ -305,10 +319,9 @@ if __name__ == "__main__":
                 y_path=args.y_path,
                 sample_idx=idx,
                 metadata_extra={
-                    "solver": "ind",
-                    "strategy": strategy,
-                    "row_strategy": strategy,
-                    "col_strategy": strategy,
+                    "solver": "collab",
+                    "row_strategy": args.row_strategy,
+                    "col_strategy": args.col_strategy,
                 },
             )
             if single_dataset_run and args.json_path:
@@ -316,7 +329,7 @@ if __name__ == "__main__":
             else:
                 output_path = make_default_log_path(
                     x_path=args.x_path,
-                    solver_tag=f"ind-{strategy}",
+                    solver_tag=f"row-{args.row_strategy}__col-{args.col_strategy}",
                     sample_idx=idx,
                     output_dir=args.output_dir,
                 )
