@@ -1,3 +1,30 @@
+"""Analyze solver JSON logs into a per-run CSV with puzzle and outcome metrics.
+
+Flag descriptions:
+- --log-dir: folder containing solver JSON logs; all nested .json files are analyzed.
+- --output-csv: destination CSV path for the analysis table.
+
+Expected output files:
+- results/analysis/nonogram_log_analysis.csv by default, or the path passed to --output-csv.
+
+Command to run code:
+After running the four controlled solver commands in scripts/run_controlled_dataset.py,
+run one analysis command per log folder:
+
+1. Original determin/stoch series:
+poetry run python scripts/analyze_logs.py --log-dir results/logs/controlled_original --output-csv results/analysis/controlled_original_analysis.csv
+
+2. Baseline series:
+poetry run python scripts/analyze_logs.py --log-dir results/logs/controlled_baseline --output-csv results/analysis/controlled_baseline_analysis.csv
+
+3. Value deterministic/argmax series:
+poetry run python scripts/analyze_logs.py --log-dir results/logs/controlled_value_argmax --output-csv results/analysis/controlled_value_argmax_analysis.csv
+
+4. Value stochastic/softmax series:
+poetry run python scripts/analyze_logs.py --log-dir results/logs/controlled_value_softmax --output-csv results/analysis/controlled_value_softmax_analysis.csv
+
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -117,12 +144,15 @@ def event_stats(events: List[Dict[str, Any]], num_cells: int, max_turns: int) ->
     write_events = [event for event in action_events if event["action"] == "write"]
     pass_events = [event for event in action_events if event["action"] == "pass"]
 
+    def is_ind_agent(agent: str) -> bool:
+        return agent == "ind" or agent.endswith("_ind")
+
     row_writes = sum(1 for event in write_events if event["agent"] == "row")
     col_writes = sum(1 for event in write_events if event["agent"] == "col")
-    ind_writes = sum(1 for event in write_events if event["agent"] == "ind")
+    ind_writes = sum(1 for event in write_events if is_ind_agent(event["agent"]))
     row_passes = sum(1 for event in pass_events if event["agent"] == "row")
     col_passes = sum(1 for event in pass_events if event["agent"] == "col")
-    ind_passes = sum(1 for event in pass_events if event["agent"] == "ind")
+    ind_passes = sum(1 for event in pass_events if is_ind_agent(event["agent"]))
 
     first_pass_index: Optional[int] = None
     writes_before_first_pass = len(write_events)
@@ -177,6 +207,41 @@ def event_stats(events: List[Dict[str, Any]], num_cells: int, max_turns: int) ->
         "pass_density": len(pass_events) / max(1, num_cells),
         "pass_ratio": len(pass_events) / max(1, len(action_events)),
         "turn_pressure": len(action_events) / max(1, max_turns),
+    }
+
+
+def target_outcome_stats(
+    final_grid: Optional[List[List[int]]],
+    target_grid: Optional[List[List[int]]],
+) -> Dict[str, Any]:
+    if final_grid is None or target_grid is None:
+        return {
+            "n_errors": None,
+            "cell_accuracy": None,
+            "known_cell_accuracy": None,
+            "correct_cells": None,
+            "known_cells": None,
+        }
+
+    total_cells = sum(len(row) for row in final_grid)
+    correct_cells = 0
+    known_cells = 0
+    n_errors = 0
+    for final_row, target_row in zip(final_grid, target_grid):
+        for final_cell, target_cell in zip(final_row, target_row):
+            if final_cell == target_cell:
+                correct_cells += 1
+            if final_cell != -1:
+                known_cells += 1
+                if final_cell != target_cell:
+                    n_errors += 1
+
+    return {
+        "n_errors": n_errors,
+        "cell_accuracy": round(correct_cells / max(1, total_cells), 4),
+        "known_cell_accuracy": round(correct_cells / max(1, known_cells), 4),
+        "correct_cells": correct_cells,
+        "known_cells": known_cells,
     }
 
 
@@ -267,11 +332,24 @@ def overall_label(complexity_label_value: str, difficulty_label_value: str) -> s
 
 
 def sample_id_for_row(path: Path, metadata: Dict[str, Any]) -> str:
+    puzzle_id = metadata.get("puzzle_id")
+    if puzzle_id is not None:
+        return str(puzzle_id)
     source = metadata.get("source", {})
     sample_idx = source.get("sample_idx")
     if sample_idx is None:
         return path.stem
     return str(sample_idx)
+
+
+def agent_mode_for_solver(solver: str) -> str:
+    if solver == "random_legal":
+        return "random"
+    if "ind" in solver:
+        return "ind"
+    if "dyad" in solver:
+        return "dyad"
+    return "unknown"
 
 
 def analyze_payload(path: Path, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -280,6 +358,7 @@ def analyze_payload(path: Path, payload: Dict[str, Any]) -> Dict[str, Any]:
     row_clues = metadata["row_clues"]
     col_clues = metadata["col_clues"]
     target_grid = payload.get("target_grid")
+    final_grid = payload.get("final_grid")
     events = payload["events"]
 
     n_rows = metadata["board_rows"]
@@ -287,6 +366,7 @@ def analyze_payload(path: Path, payload: Dict[str, Any]) -> Dict[str, Any]:
     num_cells = n_rows * n_cols
     max_turns = metadata["max_turns"]
     source = metadata.get("source", {})
+    puzzle_id = metadata.get("puzzle_id")
     solver = metadata.get("solver")
     if solver is None:
         event_agents = {event.get("agent") for event in events}
@@ -304,15 +384,29 @@ def analyze_payload(path: Path, payload: Dict[str, Any]) -> Dict[str, Any]:
     clue_stats = line_clue_stats(row_clues, col_clues)
     grid_stats = target_grid_stats(target_grid, row_clues, col_clues)
     run_stats = event_stats(events, num_cells=num_cells, max_turns=max_turns)
+    outcome_stats = target_outcome_stats(final_grid, target_grid)
 
     unknown_cells = summary["unknown_cells"]
     unknown_ratio = unknown_cells / max(1, num_cells)
+    complete = bool(summary.get("complete", summary["solved"]))
     solved = bool(summary["solved"])
+    success = summary.get("success")
+    if success is not None:
+        success = bool(success)
     matches_target = summary.get("matches_target")
+    consistent_with_clues = summary.get("consistent_with_clues")
+    contradiction_detected = bool(summary.get("contradiction_detected", False))
+    failure_reason = summary.get("failure_reason", "none" if solved else "no_valid_action")
+    n_errors = summary.get("n_errors", outcome_stats["n_errors"])
+    cell_accuracy = summary.get("cell_accuracy", outcome_stats["cell_accuracy"])
+    known_cell_accuracy = summary.get("known_cell_accuracy", outcome_stats["known_cell_accuracy"])
+    correct_cells = summary.get("correct_cells", outcome_stats["correct_cells"])
+    known_cells = summary.get("known_cells", outcome_stats["known_cells"])
 
     merged: Dict[str, Any] = {
         "log_file": str(path),
         "sample_id": sample_id_for_row(path, metadata),
+        "puzzle_id": puzzle_id,
         "sample_idx": source.get("sample_idx"),
         "source_x_path": source.get("x_path"),
         "source_y_path": source.get("y_path"),
@@ -320,13 +414,31 @@ def analyze_payload(path: Path, payload: Dict[str, Any]) -> Dict[str, Any]:
         "board_cols": n_cols,
         "num_cells": num_cells,
         "solver": solver,
-        "agent_mode": "ind" if solver == "ind" else "dyad" if solver == "dyad" else "unknown",
+        "agent_mode": agent_mode_for_solver(solver),
+        "utility_model": metadata.get("utility_model"),
+        "policy": metadata.get("policy"),
+        "beta_info": metadata.get("beta_info"),
+        "lambda_cost": metadata.get("lambda_cost"),
+        "lambda_partner": metadata.get("lambda_partner"),
+        "tau_decision": metadata.get("tau_decision"),
+        "collaboration_model": metadata.get("collaboration_model"),
+        "information_access": metadata.get("information_access"),
         "strategy": strategy if strategy is not None else row_strategy,
         "row_strategy": row_strategy,
         "col_strategy": col_strategy,
         "max_turns": max_turns,
+        "complete": complete,
         "solved": solved,
+        "success": success,
         "matches_target": matches_target,
+        "n_errors": n_errors,
+        "cell_accuracy": cell_accuracy,
+        "known_cell_accuracy": known_cell_accuracy,
+        "correct_cells": correct_cells,
+        "known_cells": known_cells,
+        "consistent_with_clues": consistent_with_clues,
+        "contradiction_detected": contradiction_detected,
+        "failure_reason": failure_reason,
         "unknown_cells": unknown_cells,
         "unknown_ratio": round(unknown_ratio, 4),
     }
@@ -362,6 +474,7 @@ def csv_columns(rows: Iterable[Dict[str, Any]]) -> List[str]:
 
     preferred = [
         "sample_id",
+        "puzzle_id",
         "sample_idx",
         "log_file",
         "source_x_path",
@@ -371,9 +484,27 @@ def csv_columns(rows: Iterable[Dict[str, Any]]) -> List[str]:
         "num_cells",
         "solver",
         "agent_mode",
+        "utility_model",
+        "policy",
+        "beta_info",
+        "lambda_cost",
+        "lambda_partner",
+        "tau_decision",
+        "collaboration_model",
+        "information_access",
         "strategy",
+        "complete",
         "solved",
+        "success",
         "matches_target",
+        "n_errors",
+        "cell_accuracy",
+        "known_cell_accuracy",
+        "correct_cells",
+        "known_cells",
+        "consistent_with_clues",
+        "contradiction_detected",
+        "failure_reason",
         "unknown_cells",
         "unknown_ratio",
         "total_blocks",

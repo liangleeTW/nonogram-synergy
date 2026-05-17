@@ -40,7 +40,7 @@ def value_name(value: int) -> str:
 
 def safe_line_probabilities(
     length: int,
-    clues: List[int],
+    clues: Sequence[int],
     current_line: List[int],
 ) -> Tuple[List[List[int]], List[float]]:
     patterns = generate_line_patterns(length, clues, current_line)
@@ -55,13 +55,13 @@ def safe_line_probabilities(
     return patterns, probabilities
 
 
-def include_action(choice_set: str, q_own: float, tau: float, eps: float = 1e-9) -> bool:
+def include_action(choice_set: str, q_own: float, q_threshold: float, eps: float = 1e-9) -> bool:
     if choice_set == "all_legal":
         return True
     if choice_set == "certainty1":
         return q_own >= 1.0 - eps
     if choice_set == "threshold":
-        return q_own + eps >= tau
+        return q_own + eps >= q_threshold
     raise ValueError(f"Unknown choice_set={choice_set}")
 
 
@@ -119,12 +119,12 @@ def build_uninformed_candidates_for_actor(
     return candidates
 
 
-def softmax_probabilities(utilities: Sequence[float], beta: float) -> List[float]:
+def softmax_probabilities(utilities: Sequence[float], beta_softmax: float) -> List[float]:
     finite_indices = [idx for idx, utility in enumerate(utilities) if math.isfinite(utility)]
     if not finite_indices:
         return [0.0 for _ in utilities]
 
-    scaled = [beta * utilities[idx] for idx in finite_indices]
+    scaled = [beta_softmax * utilities[idx] for idx in finite_indices]
     max_scaled = max(scaled)
     exp_values = [math.exp(value - max_scaled) for value in scaled]
     total = sum(exp_values)
@@ -174,7 +174,7 @@ def build_candidates_for_actor(
     col_clues: List[List[int]],
     actor: str,
     choice_set: str,
-    tau: float,
+    q_threshold: float,
 ) -> List[Candidate]:
     candidates: List[Candidate] = []
 
@@ -192,7 +192,7 @@ def build_candidates_for_actor(
                 q_filled = fill_probabilities[col_idx]
                 q_empty = 1.0 - q_filled
                 for value, q_own in ((FILLED, q_filled), (EMPTY, q_empty)):
-                    if not include_action(choice_set, q_own, tau):
+                    if not include_action(choice_set, q_own, q_threshold):
                         continue
                     candidates.append(
                         {
@@ -225,7 +225,7 @@ def build_candidates_for_actor(
                 q_filled = fill_probabilities[row_idx]
                 q_empty = 1.0 - q_filled
                 for value, q_own in ((FILLED, q_filled), (EMPTY, q_empty)):
-                    if not include_action(choice_set, q_own, tau):
+                    if not include_action(choice_set, q_own, q_threshold):
                         continue
                     candidates.append(
                         {
@@ -252,7 +252,8 @@ def prepare_candidates_for_actor(
     col_clues: List[List[int]],
     actor: str,
     choice_set: str,
-    tau: float,
+    q_threshold: float,
+    fallback: str,
 ) -> Tuple[List[Candidate], str, bool]:
     candidates = build_candidates_for_actor(
         grid=grid,
@@ -260,24 +261,27 @@ def prepare_candidates_for_actor(
         col_clues=col_clues,
         actor=actor,
         choice_set=choice_set,
-        tau=tau,
+        q_threshold=q_threshold,
     )
     if candidates:
         return candidates, choice_set, False
 
-    if choice_set != "all_legal":
+    if fallback in {"all_legal", "uninformed"} and choice_set != "all_legal":
         fallback_candidates = build_candidates_for_actor(
             grid=grid,
             row_clues=row_clues,
             col_clues=col_clues,
             actor=actor,
             choice_set="all_legal",
-            tau=tau,
+            q_threshold=q_threshold,
         )
         if fallback_candidates:
             for candidate in fallback_candidates:
                 candidate["candidate_origin"] = "all_legal_fallback"
             return fallback_candidates, "all_legal_fallback", True
+
+    if fallback != "uninformed":
+        return [], "none", False
 
     fallback_candidates = build_uninformed_candidates_for_actor(
         grid=grid,
@@ -295,8 +299,8 @@ def score_candidates(
     col_clues: List[List[int]],
     utility_model: str,
     alpha: float,
-    beta: float,
-    lambda_weight: float,
+    beta_softmax: float,
+    lambda_partner: float,
 ) -> None:
     utilities: List[float] = []
     for candidate in candidates:
@@ -320,11 +324,11 @@ def score_candidates(
             if info_gain is None:
                 utility = -math.inf
             else:
-                utility += lambda_weight * info_gain
+                utility += lambda_partner * info_gain
         candidate["utility"] = utility
         utilities.append(utility)
 
-    probabilities = softmax_probabilities(utilities, beta)
+    probabilities = softmax_probabilities(utilities, beta_softmax)
     for candidate, probability in zip(candidates, probabilities):
         candidate["probability"] = probability
 
@@ -388,15 +392,22 @@ def candidate_table_entry(turn: int, candidate: Candidate, chosen: bool) -> Dict
     }
 
 
+def tau_decision_from_beta_softmax(beta_softmax: float) -> float:
+    if beta_softmax <= 0:
+        raise ValueError("beta_softmax must be positive")
+    return 1.0 / beta_softmax
+
+
 def solve_stoch_turn_based_logged(
     row_clues: List[List[int]],
     col_clues: List[List[int]],
     utility_model: str = "ind",
     choice_set: str = "certainty1",
     alpha: float = 1.0,
-    beta: float = 5.0,
-    tau: float = 0.75,
-    lambda_weight: float = 1.0,
+    beta_softmax: float = 5.0,
+    q_threshold: float = 0.75,
+    lambda_partner: float = 1.0,
+    fallback: str = "uninformed",
     max_turns: int = 1000,
     seed: int = 0,
     verbose: bool = True,
@@ -424,6 +435,9 @@ def solve_stoch_turn_based_logged(
         print("Initial grid:")
         print_grid(grid)
 
+    stopped_for_no_valid_action = False
+    tau_decision = tau_decision_from_beta_softmax(beta_softmax)
+
     while turn < max_turns and not is_solved(grid):
         for actor in ("row", "col"):
             if turn >= max_turns or is_solved(grid):
@@ -437,7 +451,8 @@ def solve_stoch_turn_based_logged(
                 col_clues=col_clues,
                 actor=actor,
                 choice_set=choice_set,
-                tau=tau,
+                q_threshold=q_threshold,
+                fallback=fallback,
             )
             score_candidates(
                 candidates=candidates,
@@ -446,14 +461,14 @@ def solve_stoch_turn_based_logged(
                 col_clues=col_clues,
                 utility_model=utility_model,
                 alpha=alpha,
-                beta=beta,
-                lambda_weight=lambda_weight,
+                beta_softmax=beta_softmax,
+                lambda_partner=lambda_partner,
             )
 
             effective_utility_model = utility_model
             utility_fallback_used = False
             chosen_candidate = choose_candidate(candidates, rng)
-            if chosen_candidate is None:
+            if chosen_candidate is None and candidates:
                 score_candidates(
                     candidates=candidates,
                     grid=grid,
@@ -461,17 +476,54 @@ def solve_stoch_turn_based_logged(
                     col_clues=col_clues,
                     utility_model="ind",
                     alpha=alpha,
-                    beta=beta,
-                    lambda_weight=lambda_weight,
+                    beta_softmax=beta_softmax,
+                    lambda_partner=lambda_partner,
                 )
                 effective_utility_model = "ind_fallback"
                 utility_fallback_used = True
                 chosen_candidate = choose_candidate(candidates, rng)
             if chosen_candidate is None:
-                raise ValueError(
-                    f"No selectable candidate for actor={actor} at turn={turn} "
-                    f"with {len(candidates)} candidate(s)"
+                log_event(log, turn, actor, "pass", grid_before, grid, None)
+                log[-1]["decision"] = {
+                    "utility_model": utility_model,
+                    "effective_utility_model": effective_utility_model,
+                    "utility_fallback_used": utility_fallback_used,
+                    "choice_set": choice_set,
+                    "effective_choice_set": effective_choice_set,
+                    "choice_fallback_used": choice_fallback_used,
+                    "fallback": fallback,
+                    "alpha": alpha,
+                    "beta_softmax": beta_softmax,
+                    "tau_decision": tau_decision,
+                    "q_threshold": q_threshold,
+                    "lambda_partner": lambda_partner,
+                    "candidate_count": len(candidates),
+                    "chosen_probability": None,
+                    "chosen_q_own": None,
+                    "chosen_b_partner_local": None,
+                    "chosen_utility": None,
+                    "chosen_candidate_origin": None,
+                    "partner_pattern_count_before": None,
+                    "partner_pattern_count_after": None,
+                    "partner_compatible": None,
+                }
+                candidate_steps.append(
+                    {
+                        "turn": turn,
+                        "agent": actor,
+                        "requested_choice_set": choice_set,
+                        "effective_choice_set": effective_choice_set,
+                        "requested_utility_model": utility_model,
+                        "effective_utility_model": effective_utility_model,
+                        "fallback": fallback,
+                        "candidates": [
+                            candidate_table_entry(turn, candidate, False)
+                            for candidate in candidates
+                        ],
+                    }
                 )
+                stopped_for_no_valid_action = True
+                break
             candidate_table_rows = [
                 candidate_table_entry(turn, candidate, candidate is chosen_candidate)
                 for candidate in candidates
@@ -484,6 +536,7 @@ def solve_stoch_turn_based_logged(
                     "effective_choice_set": effective_choice_set,
                     "requested_utility_model": utility_model,
                     "effective_utility_model": effective_utility_model,
+                    "fallback": fallback,
                     "candidates": candidate_table_rows,
                 }
             )
@@ -498,10 +551,12 @@ def solve_stoch_turn_based_logged(
                 "choice_set": choice_set,
                 "effective_choice_set": effective_choice_set,
                 "choice_fallback_used": choice_fallback_used,
+                "fallback": fallback,
                 "alpha": alpha,
-                "beta": beta,
-                "tau": tau,
-                "lambda_weight": lambda_weight,
+                "beta_softmax": beta_softmax,
+                "tau_decision": tau_decision,
+                "q_threshold": q_threshold,
+                "lambda_partner": lambda_partner,
                 "candidate_count": len(candidates),
                 "chosen_probability": chosen_candidate["probability"],
                 "chosen_q_own": chosen_candidate["q_own"],
@@ -519,6 +574,8 @@ def solve_stoch_turn_based_logged(
                     f"{cell_to_char(value)} | {explanation}"
                 )
                 print_grid(grid)
+        if stopped_for_no_valid_action:
+            break
 
     log_event(log, turn + 1, "system", "end", grid, grid, None)
 
@@ -537,7 +594,7 @@ def augment_payload_with_candidate_tables(
 
     decision_events = [
         event for event in payload["events"]
-        if event["action"] == "write" and "decision" in event
+        if event["action"] in {"write", "pass"} and "decision" in event
     ]
     candidate_counts = [event["decision"]["candidate_count"] for event in decision_events]
     chosen_probabilities = [
@@ -579,10 +636,44 @@ def augment_payload_with_candidate_tables(
     return payload
 
 
-def default_solver_tag(utility_model: str, choice_set: str, tau: float, beta: float, seed: int) -> str:
-    tau_token = f"tau-{tau:.2f}".replace(".", "p")
-    beta_token = f"beta-{beta:.2f}".replace(".", "p")
-    return f"stoch-{utility_model}__{choice_set}__{tau_token}__{beta_token}__seed-{seed}"
+def default_solver_tag(
+    utility_model: str,
+    choice_set: str,
+    q_threshold: float,
+    beta_softmax: float,
+    seed: int,
+) -> str:
+    threshold_token = f"qthr-{q_threshold:.2f}".replace(".", "p")
+    beta_token = f"bsoft-{beta_softmax:.2f}".replace(".", "p")
+    return f"stoch-{utility_model}__{choice_set}__{threshold_token}__{beta_token}__seed-{seed}"
+
+
+def resolve_beta_softmax(args: argparse.Namespace) -> float:
+    if args.tau_decision is not None:
+        if args.tau_decision <= 0:
+            raise ValueError("--tau-decision must be positive")
+        return 1.0 / args.tau_decision
+    if args.beta_softmax is not None:
+        return args.beta_softmax
+    if args.deprecated_beta is not None:
+        return args.deprecated_beta
+    return 5.0
+
+
+def resolve_q_threshold(args: argparse.Namespace) -> float:
+    if args.q_threshold is not None:
+        return args.q_threshold
+    if args.deprecated_tau is not None:
+        return args.deprecated_tau
+    return 0.75
+
+
+def resolve_lambda_partner(args: argparse.Namespace) -> float:
+    if args.lambda_partner is not None:
+        return args.lambda_partner
+    if args.deprecated_lambda_weight is not None:
+        return args.deprecated_lambda_weight
+    return 1.0
 
 
 def main() -> None:
@@ -608,18 +699,49 @@ def main() -> None:
         help="Candidate action family for the stochastic policy.",
     )
     parser.add_argument("--alpha", type=float, default=1.0, help="Weight on Q_own.")
-    parser.add_argument("--beta", type=float, default=5.0, help="Inverse temperature for softmax.")
     parser.add_argument(
-        "--tau",
+        "--beta-softmax",
         type=float,
-        default=0.75,
+        help="Softmax inverse temperature. Defaults to 5.0 unless --tau-decision is set.",
+    )
+    parser.add_argument(
+        "--tau-decision",
+        type=float,
+        help="Softmax temperature. If provided, beta_softmax is set to 1 / tau_decision.",
+    )
+    parser.add_argument(
+        "--beta",
+        dest="deprecated_beta",
+        type=float,
+        help="Deprecated alias for --beta-softmax.",
+    )
+    parser.add_argument(
+        "--q-threshold",
+        type=float,
         help="Threshold for the threshold choice set. Ignored otherwise.",
     )
     parser.add_argument(
-        "--lambda-weight",
+        "--tau",
+        dest="deprecated_tau",
         type=float,
-        default=1.0,
+        help="Deprecated alias for --q-threshold.",
+    )
+    parser.add_argument(
+        "--lambda-partner",
+        type=float,
         help="Weight on local partner-information gain in dyad utility.",
+    )
+    parser.add_argument(
+        "--lambda-weight",
+        dest="deprecated_lambda_weight",
+        type=float,
+        help="Deprecated alias for --lambda-partner.",
+    )
+    parser.add_argument(
+        "--fallback",
+        choices=["none", "all_legal", "uninformed"],
+        default="uninformed",
+        help="Fallback chain when the requested choice set has no candidates.",
     )
     parser.add_argument("--seed", type=int, default=0, help="Random seed for stochastic choice.")
     parser.add_argument(
@@ -632,8 +754,13 @@ def main() -> None:
     parser.add_argument("--output-dir", help="Output directory for batch logs")
     args = parser.parse_args()
 
-    if args.choice_set == "threshold" and not (0.0 <= args.tau <= 1.0):
-        raise ValueError("--tau must be in [0, 1]")
+    beta_softmax = resolve_beta_softmax(args)
+    q_threshold = resolve_q_threshold(args)
+    lambda_partner = resolve_lambda_partner(args)
+    tau_decision = tau_decision_from_beta_softmax(beta_softmax)
+
+    if args.choice_set == "threshold" and not (0.0 <= q_threshold <= 1.0):
+        raise ValueError("--q-threshold must be in [0, 1]")
 
     batch_mode = args.all_samples or args.sample_start is not None or args.sample_end is not None
     if batch_mode and not args.x_path:
@@ -676,9 +803,10 @@ def main() -> None:
             utility_model=args.utility_model,
             choice_set=args.choice_set,
             alpha=args.alpha,
-            beta=args.beta,
-            tau=args.tau,
-            lambda_weight=args.lambda_weight,
+            beta_softmax=beta_softmax,
+            q_threshold=q_threshold,
+            lambda_partner=lambda_partner,
+            fallback=args.fallback,
             max_turns=max_turns,
             seed=args.seed,
             verbose=not args.quiet,
@@ -699,9 +827,11 @@ def main() -> None:
                 "utility_model": args.utility_model,
                 "choice_set": args.choice_set,
                 "alpha": args.alpha,
-                "beta": args.beta,
-                "tau": args.tau,
-                "lambda_weight": args.lambda_weight,
+                "beta_softmax": beta_softmax,
+                "tau_decision": tau_decision,
+                "q_threshold": q_threshold,
+                "lambda_partner": lambda_partner,
+                "fallback": args.fallback,
                 "seed": args.seed,
                 "row_strategy": "softmax",
                 "col_strategy": "softmax",
@@ -718,8 +848,8 @@ def main() -> None:
                 solver_tag=default_solver_tag(
                     utility_model=args.utility_model,
                     choice_set=args.choice_set,
-                    tau=args.tau,
-                    beta=args.beta,
+                    q_threshold=q_threshold,
+                    beta_softmax=beta_softmax,
                     seed=args.seed,
                 ),
                 sample_idx=idx,

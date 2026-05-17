@@ -11,6 +11,7 @@ from stoch_dyad import (
     include_action,
     move_from_candidate,
     softmax_probabilities,
+    tau_decision_from_beta_softmax,
     value_name,
 )
 from solver_common import (
@@ -69,7 +70,7 @@ def build_candidates_for_ind(
     row_clues: List[List[int]],
     col_clues: List[List[int]],
     choice_set: str,
-    tau: float,
+    q_threshold: float,
 ) -> List[Candidate]:
     n_rows = len(grid)
     n_cols = len(grid[0])
@@ -87,7 +88,7 @@ def build_candidates_for_ind(
             q_filled = fill_probabilities[col_idx]
             q_empty = 1.0 - q_filled
             for value, q_own in ((FILLED, q_filled), (EMPTY, q_empty)):
-                if not include_action(choice_set, q_own, tau):
+                if not include_action(choice_set, q_own, q_threshold):
                     continue
                 add_candidate(
                     candidates_by_key,
@@ -118,7 +119,7 @@ def build_candidates_for_ind(
             q_filled = fill_probabilities[row_idx]
             q_empty = 1.0 - q_filled
             for value, q_own in ((FILLED, q_filled), (EMPTY, q_empty)):
-                if not include_action(choice_set, q_own, tau):
+                if not include_action(choice_set, q_own, q_threshold):
                     continue
                 add_candidate(
                     candidates_by_key,
@@ -172,37 +173,41 @@ def prepare_candidates_for_ind(
     row_clues: List[List[int]],
     col_clues: List[List[int]],
     choice_set: str,
-    tau: float,
+    q_threshold: float,
+    fallback: str,
 ) -> Tuple[List[Candidate], str, bool]:
     candidates = build_candidates_for_ind(
         grid=grid,
         row_clues=row_clues,
         col_clues=col_clues,
         choice_set=choice_set,
-        tau=tau,
+        q_threshold=q_threshold,
     )
     if candidates:
         return candidates, choice_set, False
 
-    if choice_set != "all_legal":
+    if fallback in {"all_legal", "uninformed"} and choice_set != "all_legal":
         fallback_candidates = build_candidates_for_ind(
             grid=grid,
             row_clues=row_clues,
             col_clues=col_clues,
             choice_set="all_legal",
-            tau=tau,
+            q_threshold=q_threshold,
         )
         if fallback_candidates:
             for candidate in fallback_candidates:
                 candidate["candidate_origin"] = "all_legal_fallback"
             return fallback_candidates, "all_legal_fallback", True
 
+    if fallback != "uninformed":
+        return [], "none", False
+
     return build_uninformed_candidates_for_ind(grid), "uninformed_fallback", True
 
 
-def score_candidates(candidates: List[Candidate], alpha: float, beta: float) -> None:
+def score_candidates(candidates: List[Candidate], alpha: float, beta_softmax: float) -> None:
     utilities = [alpha * candidate["q_own"] for candidate in candidates]
-    probabilities = softmax_probabilities(utilities, beta)
+    probabilities = softmax_probabilities(utilities, beta_softmax)
     for candidate, utility, probability in zip(candidates, utilities, probabilities):
         candidate["b_partner_local"] = None
         candidate["partner_pattern_count_before"] = None
@@ -220,7 +225,7 @@ def augment_payload_with_candidate_tables(
 
     decision_events = [
         event for event in payload["events"]
-        if event["action"] == "write" and "decision" in event
+        if event["action"] in {"write", "pass"} and "decision" in event
     ]
     candidate_counts = [event["decision"]["candidate_count"] for event in decision_events]
     chosen_probabilities = [
@@ -247,10 +252,30 @@ def augment_payload_with_candidate_tables(
     return payload
 
 
-def default_solver_tag(choice_set: str, tau: float, beta: float, seed: int) -> str:
-    tau_token = f"tau-{tau:.2f}".replace(".", "p")
-    beta_token = f"beta-{beta:.2f}".replace(".", "p")
-    return f"stoch-ind__{choice_set}__{tau_token}__{beta_token}__seed-{seed}"
+def default_solver_tag(choice_set: str, q_threshold: float, beta_softmax: float, seed: int) -> str:
+    threshold_token = f"qthr-{q_threshold:.2f}".replace(".", "p")
+    beta_token = f"bsoft-{beta_softmax:.2f}".replace(".", "p")
+    return f"stoch-ind__{choice_set}__{threshold_token}__{beta_token}__seed-{seed}"
+
+
+def resolve_beta_softmax(args: argparse.Namespace) -> float:
+    if args.tau_decision is not None:
+        if args.tau_decision <= 0:
+            raise ValueError("--tau-decision must be positive")
+        return 1.0 / args.tau_decision
+    if args.beta_softmax is not None:
+        return args.beta_softmax
+    if args.deprecated_beta is not None:
+        return args.deprecated_beta
+    return 5.0
+
+
+def resolve_q_threshold(args: argparse.Namespace) -> float:
+    if args.q_threshold is not None:
+        return args.q_threshold
+    if args.deprecated_tau is not None:
+        return args.deprecated_tau
+    return 0.75
 
 
 def solve_stoch_ind_logged(
@@ -258,8 +283,9 @@ def solve_stoch_ind_logged(
     col_clues: List[List[int]],
     choice_set: str = "certainty1",
     alpha: float = 1.0,
-    beta: float = 5.0,
-    tau: float = 0.75,
+    beta_softmax: float = 5.0,
+    q_threshold: float = 0.75,
+    fallback: str = "uninformed",
     max_turns: int = 1000,
     seed: int = 0,
     verbose: bool = True,
@@ -288,6 +314,8 @@ def solve_stoch_ind_logged(
         print("Initial grid:")
         print_grid(grid)
 
+    tau_decision = tau_decision_from_beta_softmax(beta_softmax)
+
     while turn < max_turns and not is_solved(grid):
         turn += 1
         grid_before = copy.deepcopy(grid)
@@ -296,12 +324,52 @@ def solve_stoch_ind_logged(
             row_clues=row_clues,
             col_clues=col_clues,
             choice_set=choice_set,
-            tau=tau,
+            q_threshold=q_threshold,
+            fallback=fallback,
         )
-        score_candidates(candidates=candidates, alpha=alpha, beta=beta)
+        score_candidates(candidates=candidates, alpha=alpha, beta_softmax=beta_softmax)
         chosen_candidate = choose_candidate(candidates, rng)
         if chosen_candidate is None:
-            raise ValueError(f"No selectable ind stoch candidate at turn={turn}")
+            log_event(log, turn, "ind", "pass", grid_before, grid, None)
+            log[-1]["decision"] = {
+                "utility_model": "ind",
+                "effective_utility_model": "ind",
+                "utility_fallback_used": False,
+                "choice_set": choice_set,
+                "effective_choice_set": effective_choice_set,
+                "choice_fallback_used": choice_fallback_used,
+                "fallback": fallback,
+                "alpha": alpha,
+                "beta_softmax": beta_softmax,
+                "tau_decision": tau_decision,
+                "q_threshold": q_threshold,
+                "lambda_partner": 0.0,
+                "candidate_count": len(candidates),
+                "chosen_probability": None,
+                "chosen_q_own": None,
+                "chosen_b_partner_local": None,
+                "chosen_utility": None,
+                "chosen_candidate_origin": None,
+                "partner_pattern_count_before": None,
+                "partner_pattern_count_after": None,
+                "partner_compatible": None,
+            }
+            candidate_steps.append(
+                {
+                    "turn": turn,
+                    "agent": "ind",
+                    "requested_choice_set": choice_set,
+                    "effective_choice_set": effective_choice_set,
+                    "requested_utility_model": "ind",
+                    "effective_utility_model": "ind",
+                    "fallback": fallback,
+                    "candidates": [
+                        candidate_table_entry(turn, candidate, False)
+                        for candidate in candidates
+                    ],
+                }
+            )
+            break
 
         candidate_steps.append(
             {
@@ -311,6 +379,7 @@ def solve_stoch_ind_logged(
                 "effective_choice_set": effective_choice_set,
                 "requested_utility_model": "ind",
                 "effective_utility_model": "ind",
+                "fallback": fallback,
                 "candidates": [
                     candidate_table_entry(turn, candidate, candidate is chosen_candidate)
                     for candidate in candidates
@@ -328,10 +397,12 @@ def solve_stoch_ind_logged(
             "choice_set": choice_set,
             "effective_choice_set": effective_choice_set,
             "choice_fallback_used": choice_fallback_used,
+            "fallback": fallback,
             "alpha": alpha,
-            "beta": beta,
-            "tau": tau,
-            "lambda_weight": 0.0,
+            "beta_softmax": beta_softmax,
+            "tau_decision": tau_decision,
+            "q_threshold": q_threshold,
+            "lambda_partner": 0.0,
             "candidate_count": len(candidates),
             "chosen_probability": chosen_candidate["probability"],
             "chosen_q_own": chosen_candidate["q_own"],
@@ -376,12 +447,38 @@ def main() -> None:
         help="Candidate action family for the stochastic policy.",
     )
     parser.add_argument("--alpha", type=float, default=1.0, help="Weight on Q_own.")
-    parser.add_argument("--beta", type=float, default=5.0, help="Inverse temperature for softmax.")
+    parser.add_argument(
+        "--beta-softmax",
+        type=float,
+        help="Softmax inverse temperature. Defaults to 5.0 unless --tau-decision is set.",
+    )
+    parser.add_argument(
+        "--tau-decision",
+        type=float,
+        help="Softmax temperature. If provided, beta_softmax is set to 1 / tau_decision.",
+    )
+    parser.add_argument(
+        "--beta",
+        dest="deprecated_beta",
+        type=float,
+        help="Deprecated alias for --beta-softmax.",
+    )
+    parser.add_argument(
+        "--q-threshold",
+        type=float,
+        help="Threshold for the threshold choice set. Ignored otherwise.",
+    )
     parser.add_argument(
         "--tau",
+        dest="deprecated_tau",
         type=float,
-        default=0.75,
-        help="Threshold for the threshold choice set. Ignored otherwise.",
+        help="Deprecated alias for --q-threshold.",
+    )
+    parser.add_argument(
+        "--fallback",
+        choices=["none", "all_legal", "uninformed"],
+        default="uninformed",
+        help="Fallback chain when the requested choice set has no candidates.",
     )
     parser.add_argument("--seed", type=int, default=0, help="Random seed for stochastic choice.")
     parser.add_argument(
@@ -394,8 +491,12 @@ def main() -> None:
     parser.add_argument("--output-dir", help="Output directory for batch logs")
     args = parser.parse_args()
 
-    if args.choice_set == "threshold" and not (0.0 <= args.tau <= 1.0):
-        raise ValueError("--tau must be in [0, 1]")
+    beta_softmax = resolve_beta_softmax(args)
+    q_threshold = resolve_q_threshold(args)
+    tau_decision = tau_decision_from_beta_softmax(beta_softmax)
+
+    if args.choice_set == "threshold" and not (0.0 <= q_threshold <= 1.0):
+        raise ValueError("--q-threshold must be in [0, 1]")
 
     batch_mode = args.all_samples or args.sample_start is not None or args.sample_end is not None
     if batch_mode and not args.x_path:
@@ -436,8 +537,9 @@ def main() -> None:
             col_clues=col_clues,
             choice_set=args.choice_set,
             alpha=args.alpha,
-            beta=args.beta,
-            tau=args.tau,
+            beta_softmax=beta_softmax,
+            q_threshold=q_threshold,
+            fallback=args.fallback,
             max_turns=max_turns,
             seed=args.seed,
             verbose=not args.quiet,
@@ -458,9 +560,11 @@ def main() -> None:
                 "utility_model": "ind",
                 "choice_set": args.choice_set,
                 "alpha": args.alpha,
-                "beta": args.beta,
-                "tau": args.tau,
-                "lambda_weight": 0.0,
+                "beta_softmax": beta_softmax,
+                "tau_decision": tau_decision,
+                "q_threshold": q_threshold,
+                "lambda_partner": 0.0,
+                "fallback": args.fallback,
                 "seed": args.seed,
                 "strategy": "softmax",
                 "row_strategy": "softmax",
@@ -476,8 +580,8 @@ def main() -> None:
                 x_path=args.x_path,
                 solver_tag=default_solver_tag(
                     choice_set=args.choice_set,
-                    tau=args.tau,
-                    beta=args.beta,
+                    q_threshold=q_threshold,
+                    beta_softmax=beta_softmax,
                     seed=args.seed,
                 ),
                 sample_idx=idx,

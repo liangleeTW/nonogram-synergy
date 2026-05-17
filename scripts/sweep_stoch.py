@@ -1,3 +1,27 @@
+"""Run stochastic dyad simulations over parameter grids and write a summary CSV.
+
+Flag descriptions:
+- --x-path: required packed clue .npz file.
+- --y-path: optional target solution .npz file for success and accuracy metrics.
+- --sample-start / --sample-end: half-open sample range [start, end).
+- --utility-model: repeatable; choose ind or dyad utility.
+- --choice-set: repeatable; choose certainty1, threshold, or all_legal candidates.
+- --q-threshold: repeatable Q cutoff used only by threshold choice-set.
+- --beta-softmax: repeatable inverse softmax temperature.
+- --tau-decision: repeatable softmax temperature; converted to beta_softmax = 1 / tau_decision.
+- --lambda-partner: repeatable partner-information weight for dyad utility.
+- --fallback: repeatable fallback mode: none, all_legal, or uninformed.
+- --output-csv: destination summary CSV path.
+- --save-logs-dir: optional directory for full JSON logs.
+
+Expected output files:
+- results/analysis/stoch_sweep_summary.csv by default, or the path passed to --output-csv.
+- Optional JSON logs under --save-logs-dir.
+
+Command to run code:
+- poetry run python scripts/sweep_stoch.py --x-path data/NonoDataset/10x10/x_test_dataset.npz --y-path data/NonoDataset/10x10/y_test_dataset.npz --sample-start 0 --sample-end 10 --utility-model ind --utility-model dyad --choice-set certainty1 --choice-set threshold --q-threshold 0.75 --beta-softmax 5 --lambda-partner 1 --fallback uninformed --output-csv results/analysis/stoch_sweep_summary.csv --quiet
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -13,6 +37,7 @@ from stoch_dyad import (
     augment_payload_with_candidate_tables,
     default_solver_tag,
     solve_stoch_turn_based_logged,
+    tau_decision_from_beta_softmax,
 )
 from solver_common import (
     build_log_payload,
@@ -65,23 +90,56 @@ def main() -> None:
         help="Repeat to sweep multiple choice-set definitions. Defaults to certainty1 and threshold.",
     )
     parser.add_argument(
-        "--tau",
+        "--q-threshold",
         action="append",
         type=float,
-        help="Repeat to sweep multiple tau values. Defaults to 0.75.",
+        help="Repeat to sweep threshold choice-set Q thresholds. Defaults to 0.75.",
+    )
+    parser.add_argument(
+        "--tau",
+        dest="deprecated_taus",
+        action="append",
+        type=float,
+        help="Deprecated alias for --q-threshold.",
+    )
+    parser.add_argument(
+        "--beta-softmax",
+        action="append",
+        type=float,
+        help="Repeat to sweep softmax inverse temperatures. Defaults to 5.0 unless --tau-decision is set.",
+    )
+    parser.add_argument(
+        "--tau-decision",
+        action="append",
+        type=float,
+        help="Repeat to sweep softmax temperatures. Converted to beta_softmax = 1 / tau_decision.",
     )
     parser.add_argument(
         "--beta",
+        dest="deprecated_betas",
         action="append",
         type=float,
-        help="Repeat to sweep multiple beta values. Defaults to 5.0.",
+        help="Deprecated alias for --beta-softmax.",
+    )
+    parser.add_argument(
+        "--lambda-partner",
+        dest="lambda_partners",
+        action="append",
+        type=float,
+        help="Repeat to sweep multiple partner-information weights. Defaults to 1.0.",
     )
     parser.add_argument(
         "--lambda-weight",
-        dest="lambda_weights",
+        dest="deprecated_lambda_weights",
         action="append",
         type=float,
-        help="Repeat to sweep multiple dyad lambda values. Defaults to 1.0.",
+        help="Deprecated alias for --lambda-partner.",
+    )
+    parser.add_argument(
+        "--fallback",
+        action="append",
+        choices=["none", "all_legal", "uninformed"],
+        help="Repeat to sweep fallback modes. Defaults to uninformed.",
     )
     parser.add_argument(
         "--seed",
@@ -109,9 +167,13 @@ def main() -> None:
 
     utility_models = args.utility_model or ["ind", "dyad"]
     choice_sets = args.choice_set or ["certainty1", "threshold"]
-    taus = args.tau or [0.75]
-    betas = args.beta or [5.0]
-    lambda_weights = args.lambda_weights or [1.0]
+    q_thresholds = args.q_threshold or args.deprecated_taus or [0.75]
+    if args.tau_decision:
+        beta_softmaxes = [1.0 / value for value in args.tau_decision]
+    else:
+        beta_softmaxes = args.beta_softmax or args.deprecated_betas or [5.0]
+    lambda_partners = args.lambda_partners or args.deprecated_lambda_weights or [1.0]
+    fallbacks = args.fallback or ["uninformed"]
     seeds = args.seed or [0]
 
     x_array = load_npz_array(args.x_path)
@@ -132,18 +194,19 @@ def main() -> None:
 
     rows: List[Dict[str, Any]] = []
     total_runs = 0
-    for utility_model, choice_set, tau, beta, lambda_weight, seed, sample_idx in product(
+    for utility_model, choice_set, q_threshold, beta_softmax, lambda_partner, fallback, seed, sample_idx in product(
         utility_models,
         choice_sets,
-        taus,
-        betas,
-        lambda_weights,
+        q_thresholds,
+        beta_softmaxes,
+        lambda_partners,
+        fallbacks,
         seeds,
         sample_indices,
     ):
-        if choice_set != "threshold" and tau != taus[0]:
+        if choice_set != "threshold" and q_threshold != q_thresholds[0]:
             continue
-        if utility_model == "ind" and lambda_weight != lambda_weights[0]:
+        if utility_model == "ind" and lambda_partner != lambda_partners[0]:
             continue
 
         row_clues, col_clues, target_grid = load_dataset_sample(
@@ -158,9 +221,10 @@ def main() -> None:
             utility_model=utility_model,
             choice_set=choice_set,
             alpha=args.alpha,
-            beta=beta,
-            tau=tau,
-            lambda_weight=lambda_weight,
+            beta_softmax=beta_softmax,
+            q_threshold=q_threshold,
+            lambda_partner=lambda_partner,
+            fallback=fallback,
             max_turns=max_turns,
             seed=seed,
             verbose=not args.quiet,
@@ -181,9 +245,11 @@ def main() -> None:
                 "utility_model": utility_model,
                 "choice_set": choice_set,
                 "alpha": args.alpha,
-                "beta": beta,
-                "tau": tau,
-                "lambda_weight": lambda_weight,
+                "beta_softmax": beta_softmax,
+                "tau_decision": tau_decision_from_beta_softmax(beta_softmax),
+                "q_threshold": q_threshold,
+                "lambda_partner": lambda_partner,
+                "fallback": fallback,
                 "seed": seed,
                 "row_strategy": "softmax",
                 "col_strategy": "softmax",
@@ -198,8 +264,8 @@ def main() -> None:
                 solver_tag=default_solver_tag(
                     utility_model=utility_model,
                     choice_set=choice_set,
-                    tau=tau,
-                    beta=beta,
+                    q_threshold=q_threshold,
+                    beta_softmax=beta_softmax,
                     seed=seed,
                 ),
                 sample_idx=sample_idx,
@@ -216,16 +282,24 @@ def main() -> None:
                 "utility_model": utility_model,
                 "choice_set": choice_set,
                 "alpha": args.alpha,
-                "beta": beta,
-                "tau": tau,
-                "lambda_weight": lambda_weight,
+                "beta_softmax": beta_softmax,
+                "tau_decision": tau_decision_from_beta_softmax(beta_softmax),
+                "q_threshold": q_threshold,
+                "lambda_partner": lambda_partner,
+                "fallback": fallback,
                 "seed": seed,
                 "board_rows": len(row_clues),
                 "board_cols": len(col_clues),
                 "max_turns": max_turns,
                 "unknown_cells": summary["unknown_cells"],
+                "complete": summary["complete"],
                 "solved": summary["solved"],
+                "success": summary["success"],
                 "matches_target": summary["matches_target"],
+                "n_errors": summary["n_errors"],
+                "cell_accuracy": summary["cell_accuracy"],
+                "known_cell_accuracy": summary["known_cell_accuracy"],
+                "failure_reason": summary["failure_reason"],
                 "write_events": summary["write_events"],
                 "pass_events": summary["pass_events"],
                 "row_writes": summary["row_writes"],
@@ -241,8 +315,9 @@ def main() -> None:
         total_runs += 1
         print(
             f"Completed sample={sample_idx} utility_model={utility_model} "
-            f"choice_set={choice_set} beta={beta} tau={tau} "
-            f"lambda={lambda_weight} seed={seed}"
+            f"choice_set={choice_set} beta_softmax={beta_softmax} "
+            f"q_threshold={q_threshold} lambda_partner={lambda_partner} "
+            f"fallback={fallback} seed={seed}"
         )
 
     write_csv(rows, args.output_csv)

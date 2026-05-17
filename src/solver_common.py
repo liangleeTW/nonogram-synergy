@@ -1,12 +1,28 @@
+"""Shared solver utilities for datasets, line solving, logging, and outcomes.
+
+Flag descriptions:
+- This module has no command-line flags; solver scripts import these helpers.
+
+Expected output files:
+- None directly; solver scripts write JSON logs through save_log_json().
+
+Command to run code:
+- poetry run python -m compileall src scripts tests
+"""
+
 from __future__ import annotations
 
 import copy
+import csv
 import json
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+
+from puzzle import Puzzle
 
 UNKNOWN = -1
 EMPTY = 0
@@ -45,6 +61,63 @@ def load_npz_array(path: str, key: Optional[str] = None) -> np.ndarray:
             raise ValueError(f"Expected exactly one array in {path}, found {data.files}")
         key = data.files[0]
     return data[key]
+
+
+def load_controlled_puzzle_rows(csv_path: str) -> List[Dict[str, Any]]:
+    path = Path(csv_path)
+    with path.open("r", newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def _json_int_grid(value: str, field_name: str) -> List[List[int]]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in controlled CSV field {field_name}") from exc
+    return [[int(cell) for cell in row] for row in decoded]
+
+
+def load_controlled_puzzle_sample(
+    csv_path: str,
+    puzzle_idx: int = 0,
+    puzzle_id: Optional[str] = None,
+) -> Tuple[List[List[int]], List[List[int]], List[List[int]], Dict[str, Any]]:
+    rows = load_controlled_puzzle_rows(csv_path)
+    if not rows:
+        raise ValueError(f"No puzzle rows found in {csv_path}")
+
+    if puzzle_id is not None:
+        matches = [idx for idx, row in enumerate(rows) if row.get("puzzle_id") == puzzle_id]
+        if not matches:
+            raise ValueError(f"puzzle_id={puzzle_id!r} not found in {csv_path}")
+        if len(matches) > 1:
+            raise ValueError(f"puzzle_id={puzzle_id!r} appears more than once in {csv_path}")
+        puzzle_idx = matches[0]
+
+    if puzzle_idx < 0 or puzzle_idx >= len(rows):
+        raise IndexError(f"puzzle_idx={puzzle_idx} is out of range for {csv_path}")
+
+    row = rows[puzzle_idx]
+    row_clues = _json_int_grid(row["row_clues"], "row_clues")
+    col_clues = _json_int_grid(row["col_clues"], "col_clues")
+    solution = _json_int_grid(row["solution"], "solution")
+    puzzle = Puzzle.from_clues(row_clues=row_clues, col_clues=col_clues, solution=solution)
+
+    metadata = {
+        key: value
+        for key, value in row.items()
+        if key not in {"solution", "row_clues", "col_clues"}
+    }
+    metadata["puzzle_idx"] = puzzle_idx
+    metadata["puzzle_csv"] = csv_path
+    metadata["puzzle_id"] = row.get("puzzle_id") or str(puzzle_idx)
+
+    return (
+        puzzle.row_clues_as_lists(),
+        puzzle.col_clues_as_lists(),
+        solution,
+        metadata,
+    )
 
 
 def infer_board_size_from_solution_length(length: int) -> int:
@@ -119,7 +192,8 @@ def load_dataset_sample(
         target_grid = y_array[sample_idx].reshape(board_size, board_size).astype(int).tolist()
 
     row_clues, col_clues = decode_dataset_clues(x_array[sample_idx], board_size=board_size)
-    return row_clues, col_clues, target_grid
+    puzzle = Puzzle.from_clues(row_clues=row_clues, col_clues=col_clues)
+    return puzzle.row_clues_as_lists(), puzzle.col_clues_as_lists(), target_grid
 
 
 def load_dataset_targets(y_path: Optional[str]) -> Optional[np.ndarray]:
@@ -130,6 +204,59 @@ def load_dataset_targets(y_path: Optional[str]) -> Optional[np.ndarray]:
 
 def count_unknown_cells(grid: List[List[int]]) -> int:
     return sum(cell == UNKNOWN for row in grid for cell in row)
+
+
+def target_grid_outcome_stats(
+    final_grid: List[List[int]],
+    target_grid: Optional[List[List[int]]],
+) -> Dict[str, Optional[float]]:
+    if target_grid is None:
+        return {
+            "n_errors": None,
+            "cell_accuracy": None,
+            "known_cell_accuracy": None,
+            "correct_cells": None,
+            "known_cells": None,
+        }
+
+    total_cells = sum(len(row) for row in final_grid)
+    correct_cells = 0
+    known_cells = 0
+    n_errors = 0
+
+    for final_row, target_row in zip(final_grid, target_grid):
+        for final_cell, target_cell in zip(final_row, target_row):
+            if final_cell == target_cell:
+                correct_cells += 1
+            if final_cell != UNKNOWN:
+                known_cells += 1
+                if final_cell != target_cell:
+                    n_errors += 1
+
+    return {
+        "n_errors": float(n_errors),
+        "cell_accuracy": correct_cells / max(1, total_cells),
+        "known_cell_accuracy": correct_cells / max(1, known_cells),
+        "correct_cells": float(correct_cells),
+        "known_cells": float(known_cells),
+    }
+
+
+def board_consistency_with_clues(
+    grid: List[List[int]],
+    row_clues: Sequence[Sequence[int]],
+    col_clues: Sequence[Sequence[int]],
+) -> Tuple[bool, bool]:
+    for r, clue in enumerate(row_clues):
+        if not generate_line_patterns(len(grid[r]), list(clue), grid[r]):
+            return False, True
+
+    for c, clue in enumerate(col_clues):
+        col = get_column(grid, c)
+        if not generate_line_patterns(len(col), list(clue), col):
+            return False, True
+
+    return True, False
 
 
 def grids_equal(a: List[List[int]], b: List[List[int]]) -> bool:
@@ -156,7 +283,7 @@ def line_consistent(candidate: List[int], current_line: List[int]) -> bool:
 
 def generate_line_patterns(
     length: int,
-    clues: List[int],
+    clues: Sequence[int],
     current_line: List[int],
 ) -> List[List[int]]:
     patterns: List[List[int]] = []
@@ -194,9 +321,15 @@ def generate_line_patterns(
     return patterns
 
 
+@lru_cache(maxsize=None)
+def enumerate_valid_lines(length: int, clue: Tuple[int, ...]) -> Tuple[Tuple[int, ...], ...]:
+    patterns = generate_line_patterns(length, clue, [UNKNOWN] * length)
+    return tuple(tuple(pattern) for pattern in patterns)
+
+
 def get_forced_cells_from_line(
     length: int,
-    clues: List[int],
+    clues: Sequence[int],
     current_line: List[int],
 ) -> List[Tuple[int, int]]:
     patterns = generate_line_patterns(length, clues, current_line)
@@ -215,7 +348,7 @@ def get_forced_cells_from_line(
 
 def get_line_fill_probabilities(
     length: int,
-    clues: List[int],
+    clues: Sequence[int],
     current_line: List[int],
 ) -> List[float]:
     patterns = generate_line_patterns(length, clues, current_line)
@@ -231,7 +364,7 @@ def get_line_fill_probabilities(
 
 def count_line_patterns(
     length: int,
-    clues: List[int],
+    clues: Sequence[int],
     current_line: List[int],
 ) -> int:
     return len(generate_line_patterns(length, clues, current_line))
@@ -293,6 +426,24 @@ def log_event(
     log.append(event)
 
 
+def infer_failure_reason(
+    complete: bool,
+    success: bool,
+    contradiction_detected: bool,
+    action_events: Sequence[Dict[str, Any]],
+    max_turns: int,
+) -> str:
+    if contradiction_detected:
+        return "contradiction"
+    if complete:
+        return "none" if success else "complete_wrong"
+    if action_events and action_events[-1]["action"] == "pass":
+        return "no_valid_action"
+    if len(action_events) >= max_turns:
+        return "step_limit"
+    return "no_valid_action"
+
+
 def build_log_payload(
     events: List[Dict[str, Any]],
     row_clues: List[List[int]],
@@ -306,12 +457,28 @@ def build_log_payload(
     metadata_extra: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     unresolved = count_unknown_cells(final_grid)
+    complete = unresolved == 0
     matches_target = None if target_grid is None else grids_equal(final_grid, target_grid)
+    target_stats = target_grid_outcome_stats(final_grid, target_grid)
+    consistent_with_clues, contradiction_detected = board_consistency_with_clues(
+        final_grid,
+        row_clues,
+        col_clues,
+    )
+    success = matches_target if matches_target is not None else complete and consistent_with_clues
 
     writes = [event for event in events if event["action"] == "write"]
     passes = [event for event in events if event["action"] == "pass"]
+    action_events = [event for event in events if event["action"] in {"write", "pass"}]
     agent_write_counts = Counter(event["agent"] for event in writes)
     agent_pass_counts = Counter(event["agent"] for event in passes)
+    failure_reason = infer_failure_reason(
+        complete=complete,
+        success=success,
+        contradiction_detected=contradiction_detected,
+        action_events=action_events,
+        max_turns=max_turns,
+    )
 
     metadata: Dict[str, Any] = {
         "board_rows": len(row_clues),
@@ -332,8 +499,18 @@ def build_log_payload(
         "metadata": metadata,
         "summary": {
             "unknown_cells": unresolved,
-            "solved": unresolved == 0,
+            "complete": complete,
+            "solved": success,
+            "success": success,
             "matches_target": matches_target,
+            "n_errors": target_stats["n_errors"],
+            "cell_accuracy": target_stats["cell_accuracy"],
+            "known_cell_accuracy": target_stats["known_cell_accuracy"],
+            "correct_cells": target_stats["correct_cells"],
+            "known_cells": target_stats["known_cells"],
+            "consistent_with_clues": consistent_with_clues,
+            "contradiction_detected": contradiction_detected,
+            "failure_reason": failure_reason,
             "total_events": len(events),
             "write_events": len(writes),
             "pass_events": len(passes),
